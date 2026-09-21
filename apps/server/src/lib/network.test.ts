@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { isInCidrs, parseCidr } from './network.ts';
+import { isInCidrs, parseCidr } from './network.js';
 
 /**
  * Diese Pruefung entscheidet, wer Originalaufloesung sehen darf. Ein Fehler

@@ -5,6 +5,7 @@ import { ensureDataDirs } from './app.js';
 import { probeCapabilities, capabilityWarnings } from './lib/media.js';
 import { claimNext, completeJob, failJob, requeueStale, type Job, type JobType } from './jobs/queue.js';
 import { processAsset } from './jobs/processAsset.js';
+import { purgeExpiredSessions } from './services/auth.js';
 
 /**
  * Worker-Prozess.
@@ -105,6 +106,11 @@ async function main(): Promise<void> {
   const sweeper = setInterval(() => {
     const n = requeueStale();
     if (n > 0) log('warn', 'Verwaiste Jobs wieder eingereiht', { count: n });
+
+    // Abgelaufene Sitzungen mitnehmen: sie sind wirkungslos, wuerden die
+    // Tabelle aber auf Dauer volllaufen lassen.
+    const s = purgeExpiredSessions();
+    if (s > 0) log('info', 'Abgelaufene Sitzungen entfernt', { count: s });
   }, STALE_SWEEP_MS);
 
   const shutdown = (signal: string): void => {

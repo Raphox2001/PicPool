@@ -18,7 +18,7 @@ still abbricht.
 | **P0** | Fundament: Konfiguration, Datenbank, Job-Queue, Docker, Health-Checks | **fertig** |
 | **P1** | Upload-Kern: tus, Derivate, HEIC, Dedupe, Upload-Seite | **fertig** |
 | **P2** | Galerie, Download, ZIP | **fertig** |
-| P3 | Admin, Login, 2FA, QR-Codes | offen |
+| **P3** | Admin, Login, 2FA, QR-Codes | **fertig** |
 | P4 | Videos: Poster-Frames, Wiedergabe | offen |
 | P5 | Deployment auf der NAS, Härtung, Backup, Update-Mechanismus | offen |
 
@@ -199,6 +199,64 @@ Die LAN-Erkennung vergleicht die Client-Adresse mit den konfigurierten
 Subnetzen. Sie ist nur verlässlich, weil `trustProxy` eng auf den Reverse Proxy
 begrenzt ist — sonst könnte sich ein Gast per `X-Forwarded-For` eine LAN-Adresse
 andichten. Die Prüfung ist in `apps/server/src/lib/network.test.ts` abgedeckt.
+
+## Adminpanel (P3)
+
+Erreichbar unter `/admin`.
+
+Beim ersten Aufruf ist noch kein Konto vorhanden — die Maske wird dann zur
+Ersteinrichtung. Dieser Weg schließt sich, sobald ein Konto existiert.
+
+### Was das Panel kann
+
+- **Überblick**: Alben, Dateien, Belegung, fehlgeschlagene Verarbeitungen und
+  die von Geräten gemeldeten Upload-Fehler
+- **Alben** anlegen, umbenennen, archivieren, löschen
+- **Links** erzeugen und zurückziehen, mit **QR-Code** zum Anzeigen oder als
+  PNG zum Ausdrucken (bis 2000 px, für Ausdrucke an der Wand)
+- **Einstellungen** pro Album: Downloads, Originale im Heimnetz, GPS entfernen
+- **Moderation**: einzelne Dateien löschen, fehlgeschlagene neu verarbeiten
+- **Konto**: Passwort ändern, zweiten Faktor einrichten
+
+### Absicherung
+
+Das Panel ist auf Wunsch aus dem Internet erreichbar. Entsprechend:
+
+| Maßnahme | Umsetzung |
+|---|---|
+| Passwort-Hashing | argon2id, 64 MB Speicher, 3 Durchläufe |
+| Sperre | ab dem 5. Fehlversuch 30 s, ab dem 8. fünf Minuten, ab dem 10. eine halbe Stunde |
+| Benutzernamen-Verrat | ausgeschlossen: bei unbekanntem Konto wird trotzdem gehasht, die Antwort ist identisch |
+| Sitzungen | 256-Bit-Token, in der Datenbank nur als Hash |
+| CSRF | eigenes Token im Header, zusätzlich zu `SameSite=Lax` |
+| Zweiter Faktor | TOTP, Geheimnis verschlüsselt abgelegt |
+| Passwortwechsel | beendet alle Sitzungen, auch die eigene |
+| Album löschen | verlangt den Albumnamen zur Bestätigung |
+
+Solange kein zweiter Faktor eingerichtet ist, zeigt der Konto-Reiter einen
+Warnpunkt.
+
+### Nachgewiesen
+
+49 Tests, davon 20 zur Anmeldung. Zusätzlich gegen die laufende API geprüft:
+
+- falsches Passwort → 401, geschützte Route ohne Sitzung → 401
+- Schreibzugriff ohne CSRF-Token → **403**, mit Token → 200
+- nach Aktivierung des zweiten Faktors liefert die Anmeldung nur ein
+  kurzlebiges Zwischentoken und **keine** Sitzung
+- falscher TOTP-Code → 401, gefälschtes Zwischentoken → 401
+- QR-Endpunkt ohne Sitzung → 401
+
+### Wenn das Passwort verloren geht
+
+```bash
+docker exec picpool-app node apps/server/dist/cli.js admin:password <name>
+```
+
+Erzeugt ein neues Passwort mit rund 117 Bit Entropie und beendet alle
+Sitzungen. Das Passwort wird erzeugt statt entgegengenommen — ein Passwort als
+Kommandozeilenargument stünde sonst in der Shell-Historie und in der
+Prozessliste.
 
 ## Verwaltung von der Kommandozeile
 

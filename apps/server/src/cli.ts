@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import QRCode from 'qrcode';
 import { getConfig } from './config.js';
 import { ensureDataDirs } from './app.js';
@@ -29,6 +30,10 @@ PicPool Verwaltung
   link:revoke <Link-ID>
 
   qr <Album-ID|Slug> [upload|gallery]   Link als QR-Code im Terminal
+
+  admin:create <Name>                  Adminkonto anlegen (Passwort wird erzeugt)
+  admin:password <Name>                Passwort neu erzeugen (Notfall)
+  admin:list                           Adminkonten anzeigen
   fehler [--anzahl N]                  Gemeldete Upload-Fehler der Geraete
 
   status
@@ -245,6 +250,81 @@ async function main(): Promise<void> {
         if (d.context) console.log(`    Umstände: ${String(d.context)}`);
         if (d.userAgent) console.log(`    Geraet  : ${String(d.userAgent).slice(0, 120)}`);
         console.log();
+      }
+      break;
+    }
+
+    case 'admin:create':
+    case 'admin:password': {
+      const name = args[0];
+      if (!name) throw new Error('Benutzername fehlt.');
+
+      const auth = await import('./services/auth.js');
+
+      /**
+       * Das Passwort wird erzeugt, nicht entgegengenommen.
+       *
+       * Ein Passwort als Kommandozeilenargument steht in der Shell-Historie
+       * und ist auf dem System in der Prozessliste sichtbar. Ein erzeugtes
+       * Passwort umgeht das und ist obendrein besser als das, was von Hand
+       * getippt wuerde.
+       */
+      /**
+       * Zufallspasswort in Vierergruppen.
+       *
+       * Eine Wortfolge waere lesbarer, aber selbst vier Woerter aus einer
+       * kleinen Liste ergeben nur gut 30 Bit - fuer eine Anmeldemaske, die
+       * dauerhaft im Internet steht, zu wenig.
+       *
+       * Das Alphabet laesst bewusst weg: Bindestrich und Unterstrich (sonst
+       * nicht von den Trennzeichen zu unterscheiden) sowie 0/O und 1/l/I
+       * (beim Abtippen zu leicht zu verwechseln). Bleiben 57 Zeichen; bei
+       * 20 Stellen sind das rund 116 Bit.
+       */
+      const alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      const chars = Array.from(
+        { length: 20 },
+        () => alphabet[crypto.randomInt(alphabet.length)]!,
+      ).join('');
+      const password = (chars.match(/.{1,4}/g) ?? [chars]).join('-');
+
+      if (command === 'admin:create') {
+        const user = await auth.createAdmin(name, password);
+        console.log(`\nKonto angelegt: ${user.username}`);
+      } else {
+        const user = auth.getAdminByName(name);
+        if (!user) throw new Error('Diesen Benutzer gibt es nicht.');
+        await auth.changePassword(user.id, password);
+        console.log(`\nPasswort geändert für: ${user.username}`);
+        console.log('Alle bestehenden Sitzungen wurden beendet.');
+      }
+
+      console.log(`\n  Passwort: ${password}\n`);
+      console.log('Dieses Passwort wird nicht noch einmal angezeigt.');
+      console.log('Nach der Anmeldung im Panel ändern und den zweiten Faktor einrichten.\n');
+      break;
+    }
+
+    case 'admin:list': {
+      const rows = getDb()
+        .prepare('SELECT username, totp_enabled, last_login_at, failed_attempts, locked_until FROM admin_users ORDER BY username')
+        .all() as Array<{
+          username: string;
+          totp_enabled: number;
+          last_login_at: string | null;
+          failed_attempts: number;
+          locked_until: string | null;
+        }>;
+
+      if (rows.length === 0) {
+        console.log('Noch kein Konto eingerichtet. Anlegen mit:  admin:create <name>');
+        break;
+      }
+      for (const r of rows) {
+        const locked = r.locked_until && r.locked_until > new Date().toISOString() ? '  GESPERRT' : '';
+        console.log(
+          `  ${r.username.padEnd(20)} 2FA: ${(r.totp_enabled ? 'ja' : 'nein').padEnd(5)} zuletzt: ${(r.last_login_at ?? '-').slice(0, 19)}${locked}`,
+        );
       }
       break;
     }

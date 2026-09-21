@@ -23,3 +23,4 @@ npm-debug.log*
 Thumbs.db
 desktop.ini
 @eaDir/
+dist-test/

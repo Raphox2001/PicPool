@@ -36,6 +36,7 @@ interface PageApp {
 const PAGES: PageApp[] = [
   { name: 'upload', route: '/u/:token', assetPrefix: '/upload-assets/', hint: 'Upload-Seite' },
   { name: 'gallery', route: '/g/:token', assetPrefix: '/gallery-assets/', hint: 'Galerie' },
+  { name: 'admin', route: '/admin', assetPrefix: '/admin-assets/', hint: 'Verwaltung' },
 ];
 
 export async function registerPageRoutes(app: FastifyInstance): Promise<void> {

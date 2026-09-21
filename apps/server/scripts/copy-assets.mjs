@@ -15,7 +15,12 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 
-const assets = [{ from: 'src/db/migrations', to: 'dist/db/migrations', ext: '.sql' }];
+// Zielverzeichnis als Argument, damit derselbe Schritt fuer den regulaeren
+// Build und fuer den Testbuild genutzt werden kann. Ohne die Migrationen
+// scheitert jeder Start mit ENOENT - beim Testbuild genauso wie im Container.
+const outRoot = process.argv[2] ?? 'dist';
+
+const assets = [{ from: 'src/db/migrations', to: `${outRoot}/db/migrations`, ext: '.sql' }];
 
 let copied = 0;
 

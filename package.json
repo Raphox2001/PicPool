@@ -11,10 +11,11 @@
     "packages/shared",
     "apps/server",
     "apps/upload",
-    "apps/gallery"
+    "apps/gallery",
+    "apps/admin"
   ],
   "scripts": {
-    "build": "npm run build --workspace packages/shared && npm run build --workspace apps/upload && npm run build --workspace apps/gallery && npm run build --workspace apps/server",
+    "build": "npm run build --workspace packages/shared && npm run build --workspace apps/upload && npm run build --workspace apps/gallery && npm run build --workspace apps/admin && npm run build --workspace apps/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "dev:server": "npm run dev --workspace apps/server",
