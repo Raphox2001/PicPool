@@ -12,6 +12,7 @@ import { registerPageRoutes } from './routes/pages.js';
 import { registerGalleryRoutes } from './routes/gallery.js';
 import { registerAdminAuthRoutes } from './routes/adminAuth.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerAdminUpdateRoutes } from './routes/adminUpdate.js';
 import { registerNetTestRoutes } from './routes/nettest.js';
 
 /** Legt die Verzeichnisstruktur im Datenvolume an, falls sie noch fehlt. */
@@ -112,6 +113,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerGalleryRoutes(app);
   registerAdminAuthRoutes(app);
   registerAdminRoutes(app);
+  registerAdminUpdateRoutes(app);
   await registerPageRoutes(app);
 
   if (cfg.netTestEnabled) {

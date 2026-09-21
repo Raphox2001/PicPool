@@ -20,28 +20,51 @@ still abbricht.
 | **P2** | Galerie, Download, ZIP | **fertig** |
 | **P3** | Admin, Login, 2FA, QR-Codes | **fertig** |
 | P4 | Videos: Poster-Frames, Wiedergabe | offen |
-| P5 | Deployment auf der NAS, Härtung, Backup, Update-Mechanismus | offen |
+| **P5** | Deployment auf der NAS, Härtung, Backup, Update-Mechanismus | **fertig** |
 
-### Geplant für P5: Updates aus dem Adminpanel
+## Auf der NAS einrichten
 
-Das Panel soll Updates anstoßen können, ohne dafür Rechte zu bekommen, die es
-gefährlich machen. Ein Container, der sich selbst aktualisiert, braucht Zugriff
-auf den Docker-Socket — und der ist gleichbedeutend mit Root auf der ganzen
-NAS. Das würde die gesamte Kapselung aushebeln (Worker ohne Netzwerk,
-`cap_drop: ALL`, schreibgeschütztes Dateisystem, ein einziger Mount).
+Vollständige Anleitung: **[docs/nas-deployment.md](docs/nas-deployment.md)**
 
-Stattdessen wird der privilegierte Teil dorthin verlagert, wo er hingehört:
+Kurzfassung:
 
-1. Das Panel fragt die GitHub-Releases ab und zeigt verfügbare Versionen samt
-   Änderungsliste an.
+```bash
+cd /volume1/docker && sudo git clone https://github.com/Raphox2001/PicPool.git picpool
+cd picpool && sudo cp .env.example .env && sudo vi .env
+sudo docker compose -f docker/docker-compose.yml up -d --build
+```
+
+Danach `https://deine-domain/admin` aufrufen — beim ersten Mal wird die
+Anmeldemaske zur Ersteinrichtung.
+
+### Updates aus dem Adminpanel
+
+Der Container aktualisiert sich **nicht** selbst. Dafür bräuchte er Zugriff
+auf den Docker-Socket, und der ist gleichbedeutend mit Root auf der ganzen
+NAS — womit die gesamte Kapselung hinfällig wäre.
+
+Stattdessen:
+
+1. Das Panel fragt auf Knopfdruck die GitHub-Releases ab und zeigt, ob es
+   etwas Neueres gibt. **Nur auf Knopfdruck** — eine automatische Abfrage
+   würde bei jedem Panelaufruf die Adresse deiner NAS an einen Dritten melden.
 2. „Jetzt aktualisieren" schreibt lediglich eine Markierungsdatei ins
    Datenverzeichnis. Mehr kann der Container nicht, und mehr braucht er nicht.
-3. Eine **DSM-Aufgabenplanung**, einmalig eingerichtet, prüft regelmäßig auf
-   diese Datei und führt dann Image-Pull und Neustart aus.
+3. Eine **DSM-Aufgabe** ([docker/dsm-update.sh](docker/dsm-update.sh)), einmalig
+   eingerichtet, prüft darauf, sichert die Datenbank, baut neu und startet durch.
 
-Die Datenbank-Migrationen laufen beim Start ohnehin automatisch; ein Update ist
-damit nur ein Image-Tausch. Die vollständige Einrichtungsanleitung für die
-DSM-Aufgabe kommt mit P5 in dieses README.
+Der privilegierte Teil liegt damit in DSM, wo er hingehört — und bleibt unter
+deiner Kontrolle.
+
+### Sicherungen
+
+```bash
+docker exec picpool-app node apps/server/dist/cli.js backup
+```
+
+Schreibt eine in sich stimmige Kopie nach `backups/` und behält die letzten
+sieben. Warum die Datei nicht einfach kopiert werden darf, steht weiter unten
+unter „Wichtig für Sicherungen".
 
 ## Aufbau
 
@@ -49,12 +72,28 @@ DSM-Aufgabe kommt mit P5 in dieses README.
 apps/server/          Fastify-Backend, zugleich Worker-Prozess
   src/config.ts       Konfiguration, beim Start validiert
   src/db/             SQLite-Zugriff und Migrationen
-  src/jobs/queue.ts   Job-Queue in SQLite
+  src/jobs/           Job-Queue und Derivat-Verarbeitung
   src/lib/crypto.ts   Tokens, Verschlüsselung at rest
   src/lib/media.ts    HEIC-/Video-Dekodierung über ffmpeg
+  src/lib/network.ts  LAN-Erkennung für die Originalauflösung
+  src/routes/         Upload, Galerie, Admin, Seiten
+  src/services/       Alben, Links, Assets, Anmeldung, Betrieb
+  src/cli.ts          Verwaltung von der Kommandozeile
   src/worker.ts       Worker-Prozess ohne Netzwerkzugang
+
+apps/upload/          Upload-Seite für Gäste (ohne Framework, 19 KB gzip)
+apps/gallery/         Galerie für Gäste (PhotoSwipe)
+apps/admin/           Verwaltung (React)
 packages/shared/      Gemeinsame Typen und die MIME-Allowlist
-docker/               Dockerfile und docker-compose.yml
+
+docker/
+  Dockerfile          Mehrstufig, ein Image für App und Worker
+  docker-compose.yml  Gehärtet: unprivilegiert, read-only, ein Mount
+  dsm-update.sh       Update-Aufgabe für den DSM-Aufgabenplaner
+
+docs/
+  nas-deployment.md   Einrichtung auf der Synology
+  geraetetest.md      Prüfliste für echte Geräte
 ```
 
 ## Entwicklung
@@ -142,7 +181,7 @@ einem sauberen Checkpoint lieferte dieselbe Datei `integrity_check: ok`.
 
 Für Sicherungen gilt deshalb:
 
-- entweder die SQLite-Backup-API benutzen (kommt in P5 als CLI-Befehl),
+- entweder den CLI-Befehl `backup` benutzen (nutzt die SQLite-Backup-API),
 - oder den Container kurz anhalten und erst dann kopieren,
 - oder **alle drei Dateien** sichern: `picpool.db`, `-wal` und `-shm`.
 

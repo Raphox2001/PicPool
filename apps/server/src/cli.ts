@@ -36,6 +36,9 @@ PicPool Verwaltung
   admin:list                           Adminkonten anzeigen
   fehler [--anzahl N]                  Gemeldete Upload-Fehler der Geraete
 
+  backup [Pfad] [--behalten N]         Konsistente Sicherung der Datenbank
+  cleanup                              Abgebrochene Uploads und Reste entfernen
+
   status
 `);
 }
@@ -326,6 +329,31 @@ async function main(): Promise<void> {
           `  ${r.username.padEnd(20)} 2FA: ${(r.totp_enabled ? 'ja' : 'nein').padEnd(5)} zuletzt: ${(r.last_login_at ?? '-').slice(0, 19)}${locked}`,
         );
       }
+      break;
+    }
+
+    case 'backup': {
+      const { backupDatabase, pruneBackups } = await import('./services/maintenance.js');
+      const keep = Number(flag(args, 'behalten') ?? 7);
+
+      const res = await backupDatabase(args.find((a) => !a.startsWith('--')));
+      console.log(`\nSicherung geschrieben:`);
+      console.log(`  ${res.file}`);
+      console.log(`  ${formatBytes(res.bytes)} in ${res.durationMs} ms\n`);
+
+      const removed = await pruneBackups(keep);
+      if (removed > 0) console.log(`  ${removed} ältere Sicherungen entfernt (behalten: ${keep})\n`);
+
+      console.log('Hinweis: Die Bilder selbst liegen als normale Dateien unter originals/');
+      console.log('und sind in dieser Sicherung NICHT enthalten.\n');
+      break;
+    }
+
+    case 'cleanup': {
+      const { cleanupIncoming } = await import('./services/maintenance.js');
+      const r = await cleanupIncoming();
+      console.log(`\n  Abgebrochene Uploads entfernt : ${r.incomingRemoved} (${formatBytes(r.incomingBytes)})`);
+      console.log(`  Verwaiste Derivate entfernt   : ${r.orphanDerivatives}\n`);
       break;
     }
 

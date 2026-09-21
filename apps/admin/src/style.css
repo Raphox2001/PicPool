@@ -390,3 +390,18 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-col
 
 summary { cursor: pointer; }
 details > summary + * { margin-top: 0.6rem; }
+
+/* Änderungsliste eines Releases: vorformatiert, aber begrenzt. */
+.notes {
+  max-height: 14rem;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0.6rem 0;
+}

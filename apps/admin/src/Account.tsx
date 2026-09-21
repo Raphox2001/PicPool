@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api, formatDateTime, type AdminState } from './api';
 
 /**
@@ -19,7 +19,130 @@ export function Account({ state, onChanged }: { state: AdminState; onChanged: ()
 
       <TwoFactor enabled={state.user?.totpEnabled ?? false} onChanged={onChanged} />
       <PasswordChange />
+      <Updates />
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+interface UpdateInfo {
+  version: string;
+  pending: { requestedAt: string; requestedBy: string } | null;
+  latest: {
+    version: string;
+    url: string | null;
+    publishedAt: string | null;
+    notes: string;
+    newer: boolean;
+  } | null;
+  checkError?: string;
+}
+
+function Updates() {
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load(check: boolean): Promise<void> {
+    setError(null);
+    if (check) setChecking(true);
+    try {
+      setInfo(await api.get<UpdateInfo>(`/update${check ? '?check=1' : ''}`));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Abfrage fehlgeschlagen.');
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  useEffect(() => {
+    void load(false);
+  }, []);
+
+  if (!info) return null;
+
+  async function request(): Promise<void> {
+    setError(null);
+    try {
+      await api.post('/update', { targetVersion: info?.latest?.version ?? null });
+      await load(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Anforderung fehlgeschlagen.');
+    }
+  }
+
+  return (
+    <section className="panel">
+      <h2>Version und Aktualisierung</h2>
+      <p className="muted small">
+        Installiert: <strong>{info.version}</strong>
+      </p>
+
+      {info.pending ? (
+        <>
+          <p className="ok-text">
+            Aktualisierung angefordert am {formatDateTime(info.pending.requestedAt)} durch{' '}
+            {info.pending.requestedBy}. Die DSM-Aufgabe führt sie beim nächsten Durchlauf aus.
+          </p>
+          <button
+            className="btn ghost"
+            onClick={async () => {
+              await api.del('/update');
+              await load(false);
+            }}
+          >
+            Anforderung zurücknehmen
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="muted small">
+            Die Abfrage bei GitHub geschieht nur auf Knopfdruck — sonst würde bei jedem
+            Panelaufruf die Adresse deiner NAS an einen Dritten gemeldet.
+          </p>
+
+          <button className="btn ghost" onClick={() => void load(true)} disabled={checking}>
+            {checking ? 'Wird geprüft …' : 'Nach Updates suchen'}
+          </button>
+
+          {info.checkError && <p className="error">{info.checkError}</p>}
+
+          {info.latest &&
+            (info.latest.newer ? (
+              <>
+                <p className="ok-text">
+                  Version {info.latest.version} ist verfügbar
+                  {info.latest.publishedAt ? ` (${formatDateTime(info.latest.publishedAt)})` : ''}.
+                </p>
+                {info.latest.notes && <pre className="notes">{info.latest.notes}</pre>}
+                <p className="muted small">
+                  Beim Aktualisieren wird zuerst die Datenbank gesichert, dann das Image neu
+                  gebaut und neu gestartet. Das dauert ein paar Minuten, in denen PicPool kurz
+                  nicht erreichbar ist.
+                </p>
+                <button className="btn" onClick={() => void request()}>
+                  Jetzt aktualisieren
+                </button>
+              </>
+            ) : (
+              <p className="muted small">Du bist auf dem neuesten Stand.</p>
+            ))}
+        </>
+      )}
+
+      {error && <p className="error">{error}</p>}
+
+      <details>
+        <summary className="muted small">Wie das funktioniert</summary>
+        <p className="muted small">
+          Das Panel aktualisiert sich nicht selbst. Dafür bräuchte der Container Zugriff auf den
+          Docker-Socket — gleichbedeutend mit Root auf der ganzen NAS. Stattdessen wird hier nur
+          eine Markierungsdatei geschrieben; eine DSM-Aufgabe prüft darauf und erledigt den Rest.
+          Die Einrichtung steht im README.
+        </p>
+      </details>
+    </section>
   );
 }
 

@@ -3,9 +3,10 @@ import { getConfig } from './config.js';
 import { getDb, closeDb } from './db/index.js';
 import { ensureDataDirs } from './app.js';
 import { probeCapabilities, capabilityWarnings } from './lib/media.js';
-import { claimNext, completeJob, failJob, requeueStale, type Job, type JobType } from './jobs/queue.js';
+import { claimNext, completeJob, failJob, requeueStale, enqueue, type Job, type JobType } from './jobs/queue.js';
 import { processAsset } from './jobs/processAsset.js';
 import { purgeExpiredSessions } from './services/auth.js';
+import { cleanupIncoming } from './services/maintenance.js';
 
 /**
  * Worker-Prozess.
@@ -27,7 +28,10 @@ type Handler = (payload: unknown, job: Job) => Promise<void>;
 const handlers: Partial<Record<JobType, Handler>> = {
   process_asset: async (payload) => processAsset(payload),
   cleanup_incoming: async () => {
-    // Platzhalter: raeumt abgebrochene tus-Uploads auf (P5).
+    const r = await cleanupIncoming();
+    if (r.incomingRemoved > 0 || r.orphanDerivatives > 0) {
+      log('info', 'Aufgeraeumt', r);
+    }
   },
 };
 
@@ -127,6 +131,15 @@ async function main(): Promise<void> {
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+
+  // Einmal beim Start und danach taeglich aufraeumen. Abgebrochene Uploads
+  // liegen sonst unbegrenzt in incoming/.
+  enqueue('cleanup_incoming', {}, { priority: 200 });
+  const cleaner = setInterval(
+    () => enqueue('cleanup_incoming', {}, { priority: 200 }),
+    24 * 3600 * 1000,
+  );
+  cleaner.unref();
 
   log('info', 'Worker gestartet', { concurrency: cfg.worker.concurrency });
 
