@@ -3,6 +3,11 @@
 Einmal durcharbeiten, danach läuft es. Rechne mit etwa einer Stunde, der
 Großteil davon Wartezeit beim ersten Build.
 
+> **Wo läuft was:** Alle `bash`-Befehle in dieser Anleitung laufen **auf der
+> NAS**, verbunden per SSH — nicht in PowerShell auf deinem PC. Die Einrichtung
+> der SSH-Verbindung steht in Schritt 1. Nur die Klickwege (Systemsteuerung,
+> Container Manager) erledigst du im Browser.
+
 > **Vorher wissenswert:** Das Container-Image wurde bisher nie gebaut — dafür
 > fehlte eine Docker-Umgebung. Der erste Build auf der NAS ist also zugleich
 > der erste echte Test des Dockerfiles. Geprüft wurde vorab, dass `npm ci` mit
@@ -50,15 +55,40 @@ Gemeinsamer Ordner → Erstellen:
 Hier landen später die Bilder. Der Code kommt in Schritt 3 an eine andere
 Stelle.
 
-**UID und GID ermitteln.** SSH auf die NAS (Systemsteuerung → Terminal &
-SNMP → SSH aktivieren), dann einfach:
+### UID und GID ermitteln
+
+> **Achtung:** Alle folgenden Befehle laufen **auf der NAS**, nicht auf deinem
+> PC. `id`, `docker` und `git` sind Linux-Befehle — PowerShell kennt sie nicht
+> und meldet „wurde nicht als Name eines Cmdlet … erkannt".
+
+**SSH einschalten:** DSM → Systemsteuerung → Terminal & SNMP → Haken bei
+**SSH-Dienst aktivieren** → Übernehmen.
+
+**Verbinden** — von PowerShell, Terminal oder wo auch immer:
+
+```bash
+ssh DEIN-BENUTZER@192.168.0.XXX
+```
+
+Die Adresse ist dieselbe, unter der du DSM aufrufst. Beim ersten Mal fragt er
+nach dem Fingerabdruck (`yes` eingeben), dann nach deinem DSM-Passwort.
+
+Ab hier bist du auf der NAS. Erst jetzt:
 
 ```bash
 id
 ```
 
-Die Ausgabe sieht etwa so aus: `uid=1026(raphael) gid=100(users)`. Beide
-Zahlen brauchst du gleich.
+Die Ausgabe sieht etwa so aus:
+
+```
+uid=1026(raphael) gid=100(users) groups=100(users),101(administrators)
+```
+
+**1026** und **100** brauchst du gleich für die `.env`.
+
+Die SSH-Verbindung bleibt für den Rest der Einrichtung offen — `git clone`,
+`docker compose` und später die Verwaltungsbefehle laufen alle dort.
 
 ### Muss das ein eigener Benutzer sein?
 
