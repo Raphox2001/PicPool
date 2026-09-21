@@ -1,0 +1,113 @@
+# ---------------------------------------------------------------------------
+# PicPool auf Synology DSM (Container Manager)
+#
+# Vor dem ersten Start:
+#   1. Gemeinsamen Ordner anlegen, z.B. /volume1/picpool
+#   2. DSM-Benutzer "picpool" anlegen, nur mit Zugriff auf diesen Ordner
+#   3. Dessen UID/GID ermitteln:  id picpool
+#   4. .env aus .env.example erzeugen und ausfuellen
+# ---------------------------------------------------------------------------
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: picpool:latest
+    container_name: picpool-app
+    restart: unless-stopped
+    command: ["node", "apps/server/dist/index.js"]
+
+    # Nur an localhost der NAS binden. Von aussen erreichbar ausschliesslich
+    # ueber den Reverse Proxy. Fuer den internen Zugriff per NAS-IP stattdessen
+    # "${PICPOOL_PORT:-8080}:8080" verwenden.
+    ports:
+      - "127.0.0.1:${PICPOOL_PORT:-8080}:8080"
+
+    env_file: ../.env
+    environment:
+      PICPOOL_DATA_DIR: /data
+      PICPOOL_PORT: "8080"
+      # Das Wurzeldateisystem ist schreibgeschuetzt; ohne beschreibbares HOME
+      # scheitert Node beim Anlegen seiner Caches.
+      HOME: /tmp
+
+    # Der EINZIGE Mount. Niemals /volume1 als Ganzes, niemals der Docker-Socket.
+    volumes:
+      - ${PICPOOL_HOST_DATA:-/volume1/picpool}:/data
+
+    user: "${PICPOOL_UID:?PICPOOL_UID fehlt}:${PICPOOL_GID:?PICPOOL_GID fehlt}"
+
+    # --- Haertung ---
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+          cpus: "1.5"
+
+    networks:
+      - picpool
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  worker:
+    image: picpool:latest
+    container_name: picpool-worker
+    restart: unless-stopped
+    depends_on:
+      - app
+    command: ["node", "apps/server/dist/worker.js"]
+
+    # KEIN Netzwerk. Hier wird fremdes Bild- und Videomaterial geparst, also
+    # genau dort, wo Decoder-Schwachstellen sitzen. Ohne Netzwerkzugang sitzt
+    # ein Ausbruch in einer Sackgasse. Die Verstaendigung mit der App laeuft
+    # ausschliesslich ueber die Jobs-Tabelle im gemeinsamen Volume.
+    network_mode: none
+
+    env_file: ../.env
+    environment:
+      PICPOOL_DATA_DIR: /data
+      HOME: /tmp
+
+    volumes:
+      - ${PICPOOL_HOST_DATA:-/volume1/picpool}:/data
+
+    user: "${PICPOOL_UID:?PICPOOL_UID fehlt}:${PICPOOL_GID:?PICPOOL_GID fehlt}"
+
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+
+    deploy:
+      resources:
+        limits:
+          memory: 2560M
+          cpus: "1.5"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  picpool:
+    driver: bridge

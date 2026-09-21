@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Fotos hochladen</title>
+  </head>
+  <body>
+    <div class="wrap">
+      <!-- In-App-Browser von WhatsApp und Instagram haben eigene Eigenheiten
+           beim Dateizugriff. Der Hinweis erscheint nur dort. -->
+      <div id="inapp" class="banner hidden">
+        <strong>Tipp:</strong> Öffne diese Seite lieber in Safari oder Chrome.
+        <span class="muted">Menü <b>&#8942;</b> oder <b>&#8230;</b> antippen und „Im Browser öffnen“ wählen.</span>
+      </div>
+
+      <header id="head">
+        <h1 id="album">Wird geladen …</h1>
+        <p id="subtitle" class="muted"></p>
+      </header>
+
+      <!-- Schritt 1: Name -->
+      <section id="step-name" class="card hidden">
+        <label for="name">Wie heißt du?</label>
+        <p class="muted small">Damit man später sieht, von wem die Bilder sind.</p>
+        <input
+          id="name"
+          type="text"
+          autocomplete="name"
+          enterkeyhint="done"
+          placeholder="Vorname genügt"
+          maxlength="80"
+          spellcheck="false"
+        />
+      </section>
+
+      <!-- Schritt 2: Auswahl -->
+      <section id="step-pick" class="card hidden">
+        <button id="pick" class="big" type="button" disabled>
+          Fotos &amp; Videos auswählen
+        </button>
+        <p id="pick-hint" class="muted small">Bitte zuerst den Namen eintragen.</p>
+        <input id="file" type="file" multiple accept="image/*,video/*" hidden />
+      </section>
+
+      <!-- Laufende und fertige Uploads -->
+      <section id="list" class="list hidden" aria-live="polite"></section>
+
+      <!-- Abschlussmeldung -->
+      <section id="done" class="done hidden">
+        <div class="done-mark" aria-hidden="true">&#10003;</div>
+        <h2 id="done-title">Fertig!</h2>
+        <p id="done-text"></p>
+        <button id="more" class="big secondary" type="button">Weitere hinzufügen</button>
+      </section>
+
+      <!-- Fehlerzusammenfassung -->
+      <section id="failed" class="failed hidden">
+        <h2 id="failed-title"></h2>
+        <p class="muted" id="failed-text">
+          Das liegt meistens am Empfang. Ein erneuter Versuch klappt fast immer.
+        </p>
+        <button id="retry" class="big" type="button">Nochmal versuchen</button>
+      </section>
+
+      <!-- Fataler Fehler, z.B. ungueltiger Link -->
+      <section id="fatal" class="card fatal hidden">
+        <h2>Das hat nicht geklappt</h2>
+        <p id="fatal-text"></p>
+      </section>
+    </div>
+
+    <!-- Klebender Fuss mit Gesamtfortschritt -->
+    <footer id="bar" class="bar hidden">
+      <div class="bar-inner">
+        <div class="bar-text">
+          <span id="bar-count"></span>
+          <span id="bar-note" class="muted small"></span>
+        </div>
+        <div class="track"><div id="bar-fill" class="fill"></div></div>
+      </div>
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

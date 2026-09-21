@@ -1,0 +1,293 @@
+/*
+ * Upload-Seite.
+ *
+ * Gestaltungsleitlinie: Die Seite muss ohne Erklaerung bedienbar sein, auch
+ * mit schlechten Augen, dicken Fingern und bei Sonnenlicht. Daraus folgt:
+ * grosse Schrift, sehr grosse Schaltflaechen, hoher Kontrast, genau eine
+ * sinnvolle Handlung pro Bildschirm.
+ */
+
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --ink: #16191d;
+  --muted: #5d6470;
+  --line: #d9dde4;
+  --accent: #1f6feb;
+  --accent-ink: #ffffff;
+  --ok: #17803d;
+  --ok-bg: #e8f6ed;
+  --err: #b42318;
+  --err-bg: #fdeceb;
+  --warn-bg: #fff6e5;
+  --warn-line: #e9c46a;
+  --radius: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --card: #1d2127;
+    --ink: #f0f2f5;
+    --muted: #9aa3b2;
+    --line: #2f353e;
+    --accent: #4b8ff5;
+    --ok: #4ade80;
+    --ok-bg: #14301f;
+    --err: #f87171;
+    --err-bg: #331917;
+    --warn-bg: #2e2515;
+    --warn-line: #6b5524;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  padding: 0 0 7rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.wrap {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 0;
+}
+
+h1 { font-size: 1.6rem; margin: 0 0 0.25rem; line-height: 1.25; }
+h2 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+
+.muted { color: var(--muted); }
+.small { font-size: 0.9rem; }
+.hidden { display: none !important; }
+
+header { margin-bottom: 1.25rem; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  font-size: 1.1rem;
+  margin-bottom: 0.15rem;
+}
+
+input[type="text"] {
+  width: 100%;
+  margin-top: 0.65rem;
+  padding: 0.85rem 0.9rem;
+  font-size: 1.15rem;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 2px solid var(--line);
+  border-radius: 10px;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Die zentrale Schaltflaeche. Bewusst sehr gross und bildschirmbreit. */
+.big {
+  display: block;
+  width: 100%;
+  padding: 1.15rem 1rem;
+  font-size: 1.2rem;
+  font-weight: 650;
+  font-family: inherit;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  /* Verhindert das Doppeltipp-Zoomen auf iOS. */
+  touch-action: manipulation;
+}
+
+.big:disabled { opacity: 0.45; cursor: default; }
+.big.secondary { background: transparent; color: var(--accent); border: 2px solid var(--accent); }
+
+#pick-hint { margin: 0.7rem 0 0; text-align: center; }
+
+/* --- Dateiliste --- */
+
+.list { margin-bottom: 1rem; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.55rem;
+}
+
+.thumb {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--bg);
+}
+
+.row-main { flex: 1; min-width: 0; }
+
+.row-name {
+  font-size: 0.97rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-note { font-size: 0.85rem; color: var(--muted); }
+
+.track {
+  height: 8px;
+  background: var(--line);
+  border-radius: 99px;
+  overflow: hidden;
+  margin-top: 0.4rem;
+}
+
+.fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 99px;
+  transition: width 0.25s ease;
+}
+
+.row.ok .fill { background: var(--ok); }
+.row.err .fill { background: var(--err); }
+
+/* Statuszeichen: gross genug, um ohne Lesen erkannt zu werden. */
+.mark {
+  flex: 0 0 auto;
+  width: 32px;
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.row.ok .mark { color: var(--ok); }
+.row.err .mark { color: var(--err); }
+
+/* --- Abschluss --- */
+
+.done {
+  background: var(--ok-bg);
+  border: 2px solid var(--ok);
+  border-radius: var(--radius);
+  padding: 1.75rem 1.25rem;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.done-mark {
+  font-size: 3.5rem;
+  line-height: 1;
+  color: var(--ok);
+  margin-bottom: 0.5rem;
+}
+
+.done h2 { color: var(--ok); font-size: 1.5rem; }
+.done p { margin: 0 0 1.25rem; }
+
+.failed {
+  background: var(--err-bg);
+  border: 2px solid var(--err);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.failed h2 { color: var(--err); }
+.failed p { margin-top: 0; }
+
+.fatal { border-color: var(--err); }
+.fatal h2 { color: var(--err); }
+
+.banner {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: 10px;
+  padding: 0.8rem 0.9rem;
+  margin-bottom: 1rem;
+  font-size: 0.93rem;
+}
+
+.banner .muted { display: block; margin-top: 0.2rem; }
+
+/* --- Klebender Fuss --- */
+
+.bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  /* Respektiert die Home-Leiste auf iPhones ohne Home-Button. */
+  padding: 0.8rem 1rem calc(0.8rem + env(safe-area-inset-bottom));
+}
+
+.bar-inner { max-width: 34rem; margin: 0 auto; }
+
+.bar-text {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+#bar-count { font-weight: 650; }
+#bar-note { text-align: right; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fill { transition: none; }
+}
+
+/* Technische Einzelheiten im Fehlerfall - zusammengeklappt, damit sie einen
+   Gast nicht verunsichern, aber beim Testen sofort greifbar sind. */
+.details { margin-top: 1rem; }
+
+.details summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--muted);
+  padding: 0.35rem 0;
+}
+
+.details pre {
+  margin: 0.5rem 0 0;
+  padding: 0.7rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+  /* Damit ein langer Bericht das Layout nicht sprengt. */
+  max-height: 16rem;
+  overflow: auto;
+}
