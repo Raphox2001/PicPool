@@ -9,15 +9,46 @@ Großteil davon Wartezeit beim ersten Build.
 > den kopierten Manifesten durchläuft und alle `COPY`-Quellen existieren.
 > Falls doch etwas klemmt: Abschnitt [Wenn etwas schiefgeht](#wenn-etwas-schiefgeht).
 
+## Zwei Orte, nicht verwechseln
+
+PicPool belegt zwei getrennte Verzeichnisse:
+
+| Was | Wohin | Größe |
+|---|---|---|
+| **Code** — Compose-Datei, Dockerfile, Quellen | `/volume1/docker/picpool` | wenige MB |
+| **Daten** — Bilder, Datenbank, Sicherungen | `/volume1/picpool` | wächst mit deinen Alben |
+
+Der Code kommt zu deinen anderen Containern. Die Daten bekommen einen
+**eigenen gemeinsamen Ordner** — nicht aus Prinzip, sondern weil ein
+gemeinsamer Ordner bei Synology die Einheit für Hyper Backup, Snapshots und
+Kontingente ist. Lägen die Bilder unter `docker/`, zöge dein
+Container-Backup plötzlich hunderte Gigabyte Fotos mit, und Snapshots ließen
+sich nicht getrennt planen. Dazu kommt, dass der `docker`-Ordner oft engere
+Rechte hat, während du hier ausdrücklich im File Station arbeiten können
+willst.
+
+Wenn du trotzdem alles beisammen haben möchtest, geht das — es ist nur ein
+Wert in der `.env`:
+
+```bash
+PICPOOL_HOST_DATA=/volume1/docker/picpool-data
+```
+
+Dann entfällt Schritt 1, und du verlierst lediglich die getrennte
+Sicherungsstrategie.
+
 ## 1. Ordner anlegen, UID ermitteln
 
-**Gemeinsamen Ordner erstellen** — Systemsteuerung → Gemeinsamer Ordner →
-Erstellen:
+**Gemeinsamen Ordner für die Daten erstellen** — Systemsteuerung →
+Gemeinsamer Ordner → Erstellen:
 
 - Name: `picpool`
 - Papierkorb: nach Geschmack
 - **Verschlüsselung: nein** (sonst ist der Ordner nach einem Neustart nicht
   eingehängt und die Container starten ins Leere)
+
+Hier landen später die Bilder. Der Code kommt in Schritt 3 an eine andere
+Stelle.
 
 **UID und GID ermitteln.** SSH auf die NAS (Systemsteuerung → Terminal &
 SNMP → SSH aktivieren), dann einfach:
@@ -59,12 +90,17 @@ Docker Compose mit.
 
 ## 3. Das Projekt auf die NAS holen
 
+Der **Code** kommt in den `docker`-Ordner zu deinen anderen Containern — nicht
+in den Datenordner aus Schritt 1:
+
 ```bash
 sudo mkdir -p /volume1/docker
 cd /volume1/docker
 sudo git clone https://github.com/Raphox2001/PicPool.git picpool
 cd picpool
 ```
+
+Danach liegt die `docker-compose.yml` unter `/volume1/docker/picpool/`.
 
 Falls `git` fehlt: Paket-Zentrum → **Git Server** installieren, oder das
 Projekt als ZIP herunterladen und per File Station entpacken. Mit Git ist
@@ -98,6 +134,8 @@ PICPOOL_TRUST_PROXY=172.16.0.0/12
 # Aus  id  (dein eigener Benutzer genügt)
 PICPOOL_UID=1026
 PICPOOL_GID=100
+
+# Der Datenordner aus Schritt 1 - NICHT das Verzeichnis mit dem Code.
 PICPOOL_HOST_DATA=/volume1/picpool
 ```
 

@@ -26,6 +26,18 @@ still abbricht.
 
 Vollständige Anleitung: **[docs/nas-deployment.md](docs/nas-deployment.md)**
 
+PicPool belegt zwei getrennte Orte:
+
+| Was | Wohin |
+|---|---|
+| **Code** — Compose-Datei, Dockerfile, Quellen | `/volume1/docker/picpool`, zu den anderen Containern |
+| **Daten** — Bilder, Datenbank, Sicherungen | `/volume1/picpool`, eigener gemeinsamer Ordner |
+
+Getrennt, weil ein gemeinsamer Ordner bei Synology die Einheit für Hyper
+Backup, Snapshots und Kontingente ist — sonst zieht dein Container-Backup
+plötzlich hunderte Gigabyte Fotos mit. Beides zusammenzulegen geht trotzdem,
+es ist nur ein Wert in der `.env`.
+
 Kurzfassung:
 
 ```bash
@@ -33,6 +45,9 @@ cd /volume1/docker && sudo git clone https://github.com/Raphox2001/PicPool.git p
 cd picpool && sudo cp .env.example .env && sudo vi .env
 sudo docker compose up -d --build
 ```
+
+Alternativ über Container Manager → Projekt → Erstellen, mit dem Pfad
+`/volume1/docker/picpool`. Die `.env` muss vorher ausgefüllt sein.
 
 Danach `https://deine-domain/admin` aufrufen — beim ersten Mal wird die
 Anmeldemaske zur Ersteinrichtung.
