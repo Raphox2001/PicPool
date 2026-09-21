@@ -1,0 +1,35 @@
+# Zeilenenden.
+#
+# Entwickelt wird unter Windows, ausgefuehrt wird unter Linux. Ohne diese
+# Regeln normalisiert Git auf CRLF, und Dateien, die im Container ausgefuehrt
+# oder geparst werden, funktionieren dort nicht mehr - ein Shell-Skript mit
+# CRLF scheitert mit einer irrefuehrenden Meldung ueber einen nicht
+# gefundenen Interpreter.
+#
+# Deshalb: im Zweifel LF.
+
+* text=auto eol=lf
+
+# Immer LF, unabhaengig von der Plattform
+*.sh          text eol=lf
+*.mjs         text eol=lf
+*.js          text eol=lf
+*.ts          text eol=lf
+*.json        text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.sql         text eol=lf
+*.css         text eol=lf
+*.html        text eol=lf
+*.md          text eol=lf
+Dockerfile    text eol=lf
+.env.example  text eol=lf
+
+# Binaerdateien nicht anfassen
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.webp        binary
+*.heic        binary
+*.mp4         binary
+*.ico         binary
