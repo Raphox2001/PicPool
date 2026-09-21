@@ -4,9 +4,12 @@ Einmal durcharbeiten, danach läuft es. Rechne mit etwa einer Stunde, der
 Großteil davon Wartezeit beim ersten Build.
 
 > **Wo läuft was:** Alle `bash`-Befehle in dieser Anleitung laufen **auf der
-> NAS**, verbunden per SSH — nicht in PowerShell auf deinem PC. Die Einrichtung
-> der SSH-Verbindung steht in Schritt 1. Nur die Klickwege (Systemsteuerung,
-> Container Manager) erledigst du im Browser.
+> NAS**, verbunden per SSH — nicht in PowerShell auf deinem PC. Die Klickwege
+> (Systemsteuerung, Container Manager) erledigst du im Browser.
+>
+> **Ohne SSH geht es auch.** Für jeden Befehl gibt es einen Weg über die
+> DSM-Oberfläche: [Einrichtung ohne SSH](#einrichtung-ohne-ssh) am Ende dieser
+> Anleitung. SSH ist bequemer, aber keine Voraussetzung.
 
 > **Vorher wissenswert:** Das Container-Image wurde bisher nie gebaut — dafür
 > fehlte eine Docker-Umgebung. Der erste Build auf der NAS ist also zugleich
@@ -419,6 +422,92 @@ Browsermeldung und den Umständen.
 sudo docker exec picpool-app node apps/server/dist/cli.js status
 curl -s http://127.0.0.1:8080/readyz
 ```
+
+## Einrichtung ohne SSH
+
+Die gesamte Einrichtung lässt sich über die DSM-Oberfläche erledigen. Etwas
+umständlicher als SSH, aber vollständig.
+
+### UID und GID ermitteln
+
+Systemsteuerung → **Aufgabenplaner** → Erstellen → Geplante Aufgabe →
+**Benutzerdefiniertes Skript**:
+
+| | |
+|---|---|
+| Aufgabe | `UID ermitteln` |
+| Benutzer | **dein eigener Benutzer** — nicht root |
+| Zeitplan | Haken bei „Aktiviert" entfernen |
+| Befehl | `id > /volume1/picpool/meine-uid.txt` |
+
+Speichern, die Aufgabe in der Liste markieren und oben auf **Ausführen**
+klicken. Danach File Station → Ordner `picpool` → Rechtsklick auf
+`meine-uid.txt` → **In Text-Editor öffnen**.
+
+> Als Benutzer unbedingt deinen eigenen Account wählen. Läuft die Aufgabe als
+> root, steht dort `uid=0(root)` — und genau das soll nicht in die `.env`.
+
+Die Datei danach löschen, sie wird nicht mehr gebraucht.
+
+### Code auf die NAS bringen
+
+Auf GitHub → **Code** → **Download ZIP**. Die Datei im File Station nach
+`/volume1/docker/` hochladen, Rechtsklick → **Entpacken**.
+
+Der entpackte Ordner heißt `PicPool-main`. Umbenennen in `picpool`, damit die
+Pfade in dieser Anleitung stimmen.
+
+### `.env` anlegen und bearbeiten
+
+Dateien mit führendem Punkt sind im File Station standardmäßig unsichtbar:
+oben rechts **Einstellungen** → **Versteckte Dateien anzeigen** aktivieren.
+
+Dann Rechtsklick auf `.env.example` → **Kopieren**, wieder einfügen und in
+`.env` umbenennen. Rechtsklick → **In Text-Editor öffnen**, Werte eintragen,
+speichern.
+
+Den Schlüssel erzeugst du ohne SSH am einfachsten hier am PC, in PowerShell:
+
+```powershell
+$b = New-Object byte[] 32; $r = [System.Security.Cryptography.RNGCryptoServiceProvider]::new(); $r.GetBytes($b); $r.Dispose(); [Convert]::ToBase64String($b)
+```
+
+Getestet mit Windows PowerShell 5.1; liefert 32 Byte base64.
+
+> Nimm dafür **nicht** `Get-Random`. Das ist kein kryptografisch sicherer
+> Zufall, und dieser Schlüssel schützt die Share-Tokens und die
+> 2FA-Geheimnisse.
+
+### Starten
+
+Container Manager → **Projekt** → **Erstellen**, Pfad
+`/volume1/docker/picpool`, Quelle „Vorhandene docker-compose.yml verwenden".
+Baut und startet beides.
+
+### Laufenden Betrieb
+
+| Aufgabe | Ohne SSH |
+|---|---|
+| Protokolle ansehen | Container Manager → Container → `picpool-app` → Protokoll |
+| Neu starten | Container Manager → Projekt → Aktion → Neu starten |
+| Erstes Adminkonto | Nicht nötig — `/admin` wird beim ersten Aufruf zur Einrichtung |
+| Sicherung | Aufgabenplaner, Befehl: `docker exec picpool-app node apps/server/dist/cli.js backup` |
+| Upload-Fehler ansehen | Im Panel unter „Alben", oben bei den Kennzahlen |
+
+Für die Aufgabenplaner-Befehle mit `docker exec` muss die Aufgabe als **root**
+laufen — anders als beim UID-Ermitteln oben.
+
+### Wann SSH sich doch lohnt
+
+Wenn beim ersten Build etwas schiefgeht. Der Container Manager zeigt
+Build-Fehler nur verkürzt an, über SSH siehst du die vollständige Ausgabe:
+
+```bash
+sudo docker compose build --no-cache 2>&1 | tail -40
+```
+
+Einschalten kannst du es jederzeit nachträglich: Systemsteuerung →
+Terminal & SNMP → SSH-Dienst aktivieren.
 
 ## Was danach noch fehlt
 

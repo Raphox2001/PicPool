@@ -49,6 +49,9 @@ sudo docker compose up -d --build
 Alternativ über Container Manager → Projekt → Erstellen, mit dem Pfad
 `/volume1/docker/picpool`. Die `.env` muss vorher ausgefüllt sein.
 
+**Ganz ohne SSH** geht es auch — für jeden Befehl gibt es einen Weg über die
+DSM-Oberfläche. Siehe den Abschnitt „Einrichtung ohne SSH" in der Anleitung.
+
 Danach `https://deine-domain/admin` aufrufen — beim ersten Mal wird die
 Anmeldemaske zur Ersteinrichtung.
 
