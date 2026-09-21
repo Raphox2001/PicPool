@@ -3,15 +3,20 @@
 #
 # Vor dem ersten Start:
 #   1. Gemeinsamen Ordner anlegen, z.B. /volume1/picpool
-#   2. DSM-Benutzer "picpool" anlegen, nur mit Zugriff auf diesen Ordner
-#   3. Dessen UID/GID ermitteln:  id picpool
-#   4. .env aus .env.example erzeugen und ausfuellen
+#   2. .env aus .env.example erzeugen und ausfuellen
+#   3. UID/GID eintragen - "id" genuegt, dein eigener DSM-Benutzer ist in
+#      Ordnung. Ein eigener Benutzer ist zusaetzliche Absicherung, aber
+#      keine Voraussetzung.
+#
+# Diese Datei liegt bewusst im Wurzelverzeichnis: Docker Compose sucht die
+# .env im Verzeichnis der Compose-Datei, und der Container Manager von DSM
+# findet sie hier ohne Umwege.
 # ---------------------------------------------------------------------------
 
 services:
   app:
     build:
-      context: ..
+      context: .
       dockerfile: docker/Dockerfile
     image: picpool:latest
     container_name: picpool-app
@@ -24,7 +29,7 @@ services:
     ports:
       - "127.0.0.1:${PICPOOL_PORT:-8080}:8080"
 
-    env_file: ../.env
+    env_file: .env
     environment:
       PICPOOL_DATA_DIR: /data
       PICPOOL_PORT: "8080"
@@ -36,7 +41,7 @@ services:
     volumes:
       - ${PICPOOL_HOST_DATA:-/volume1/picpool}:/data
 
-    user: "${PICPOOL_UID:?PICPOOL_UID fehlt}:${PICPOOL_GID:?PICPOOL_GID fehlt}"
+    user: "${PICPOOL_UID:?In .env eintragen - ermitteln mit: id}:${PICPOOL_GID:?In .env eintragen - ermitteln mit: id}"
 
     # --- Haertung ---
     read_only: true
@@ -77,7 +82,7 @@ services:
     # ausschliesslich ueber die Jobs-Tabelle im gemeinsamen Volume.
     network_mode: none
 
-    env_file: ../.env
+    env_file: .env
     environment:
       PICPOOL_DATA_DIR: /data
       HOME: /tmp
@@ -85,7 +90,7 @@ services:
     volumes:
       - ${PICPOOL_HOST_DATA:-/volume1/picpool}:/data
 
-    user: "${PICPOOL_UID:?PICPOOL_UID fehlt}:${PICPOOL_GID:?PICPOOL_GID fehlt}"
+    user: "${PICPOOL_UID:?In .env eintragen - ermitteln mit: id}:${PICPOOL_GID:?In .env eintragen - ermitteln mit: id}"
 
     read_only: true
     tmpfs:

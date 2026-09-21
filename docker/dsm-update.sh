@@ -73,13 +73,13 @@ else
   COMPOSE="docker-compose"
 fi
 
-$COMPOSE -f docker/docker-compose.yml build >> "$LOG" 2>&1 || {
+$COMPOSE build >> "$LOG" 2>&1 || {
   log "FEHLER: Build fehlgeschlagen - die laufende Version bleibt unveraendert"
   exit 1
 }
 
 log "Starte die Container neu …"
-$COMPOSE -f docker/docker-compose.yml up -d >> "$LOG" 2>&1 || {
+$COMPOSE up -d >> "$LOG" 2>&1 || {
   log "FEHLER: Neustart fehlgeschlagen"
   exit 1
 }

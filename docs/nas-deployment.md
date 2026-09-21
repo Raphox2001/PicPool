@@ -9,7 +9,7 @@ Großteil davon Wartezeit beim ersten Build.
 > den kopierten Manifesten durchläuft und alle `COPY`-Quellen existieren.
 > Falls doch etwas klemmt: Abschnitt [Wenn etwas schiefgeht](#wenn-etwas-schiefgeht).
 
-## 1. Ordner und Benutzer anlegen
+## 1. Ordner anlegen, UID ermitteln
 
 **Gemeinsamen Ordner erstellen** — Systemsteuerung → Gemeinsamer Ordner →
 Erstellen:
@@ -19,22 +19,38 @@ Erstellen:
 - **Verschlüsselung: nein** (sonst ist der Ordner nach einem Neustart nicht
   eingehängt und die Container starten ins Leere)
 
-**Benutzer erstellen** — Systemsteuerung → Benutzer & Gruppe → Erstellen:
-
-- Name: `picpool`
-- Kein E-Mail-Versand, kein Passwort-Änderungszwang
-- Berechtigungen: **nur** auf den Ordner `picpool`, dort Lesen/Schreiben
-- Anwendungen: alles verweigern — dieser Benutzer soll sich nirgends anmelden
-
 **UID und GID ermitteln.** SSH auf die NAS (Systemsteuerung → Terminal &
-SNMP → SSH aktivieren), dann:
+SNMP → SSH aktivieren), dann einfach:
 
 ```bash
-id picpool
+id
 ```
 
-Die Ausgabe sieht etwa so aus: `uid=1027(picpool) gid=100(users)`. Beide
+Die Ausgabe sieht etwa so aus: `uid=1026(raphael) gid=100(users)`. Beide
 Zahlen brauchst du gleich.
+
+### Muss das ein eigener Benutzer sein?
+
+**Nein.** Dein eigener DSM-Benutzer reicht völlig — das ist der einfachste Weg.
+
+Worum es überhaupt geht: Die Container laufen als der Benutzer, dessen UID du
+einträgst, und die hochgeladenen Bilder gehören dann diesem Benutzer. Setzt man
+gar keinen (wie es Immich und viele andere Container tun), läuft alles intern
+als root, und die Dateien gehören root. Bei Immich stört das nicht, weil du
+dort ohnehin nur über die App an die Bilder kommst.
+
+Bei PicPool ist das anders: Der ganze Sinn ist, dass die Originale als
+gewöhnliche Dateien dort liegen und du sie im File Station verschieben oder in
+die Synology-Photos-Bibliothek ziehen kannst. Gehören sie root, kommst du ohne
+Umwege nicht daran.
+
+Ein **eigener** Benutzer nur für PicPool ist zusätzliche Absicherung — wird die
+Anwendung übernommen, sitzt der Angreifer in einem Konto, das außer diesem einen
+Ordner nichts erreicht. Wenn du das möchtest: Systemsteuerung → Benutzer &
+Gruppe → Erstellen, Berechtigung nur auf den Ordner `picpool`, alle Anwendungen
+verweigern. Dann `id picpool` statt `id`.
+
+Beides funktioniert. Nimm im Zweifel deinen eigenen Benutzer.
 
 ## 2. Docker installieren
 
@@ -79,8 +95,8 @@ PICPOOL_LAN_CIDRS=192.168.0.0/24
 # Dem Reverse Proxy wird X-Forwarded-For geglaubt. Eng fassen!
 PICPOOL_TRUST_PROXY=172.16.0.0/12
 
-# Aus  id picpool
-PICPOOL_UID=1027
+# Aus  id  (dein eigener Benutzer genügt)
+PICPOOL_UID=1026
 PICPOOL_GID=100
 PICPOOL_HOST_DATA=/volume1/picpool
 ```
@@ -93,11 +109,36 @@ PICPOOL_HOST_DATA=/volume1/picpool
 
 ## 5. Bauen und starten
 
+Zwei Wege — such dir einen aus.
+
+### Weg A: Über SSH
+
 ```bash
 cd /volume1/docker/picpool
-sudo docker compose -f docker/docker-compose.yml build
-sudo docker compose -f docker/docker-compose.yml up -d
+sudo docker compose up -d --build
 ```
+
+Die `docker-compose.yml` liegt im Wurzelverzeichnis des Projekts, direkt neben
+der `.env`. Das ist Absicht: Docker Compose sucht die `.env` im Verzeichnis der
+Compose-Datei, und so findet sie sich ohne zusätzliche Schalter.
+
+### Weg B: Über den Container Manager
+
+Container Manager → **Projekt** → **Erstellen**:
+
+| | |
+|---|---|
+| Projektname | `picpool` |
+| Pfad | `/volume1/docker/picpool` |
+| Quelle | **Vorhandene docker-compose.yml verwenden** |
+
+Der Container Manager findet die Datei dort von allein, baut das Image und
+startet beide Container. Danach siehst du sie in der Übersicht und kannst
+Protokolle und Neustarts über die Oberfläche erledigen.
+
+> Der Container Manager liest dieselbe `.env`. Sie muss also **vor** dem
+> Anlegen des Projekts ausgefüllt sein — sonst bricht der Start mit
+> `In .env eintragen - ermitteln mit: id` ab.
 
 Der erste Build dauert einige Minuten — Node-Abhängigkeiten, ffmpeg und die
 drei Oberflächen.
@@ -105,7 +146,7 @@ drei Oberflächen.
 **Prüfen, ob es läuft:**
 
 ```bash
-sudo docker compose -f docker/docker-compose.yml ps
+sudo docker compose ps
 sudo docker logs picpool-app --tail 30
 ```
 
@@ -132,7 +173,7 @@ curl -s http://127.0.0.1:8080/readyz
 
 Standardmäßig lauscht der Container nur auf `127.0.0.1` der NAS — von außen
 also gar nicht. Für den Zugriff aus dem Heimnetz per NAS-IP die Portzeile in
-`docker/docker-compose.yml` ändern:
+`docker-compose.yml` ändern:
 
 ```yaml
     ports:
@@ -261,7 +302,7 @@ sichern — mitsamt der konsistenten Datenbankkopien.
 ### Der Build schlägt fehl
 
 ```bash
-sudo docker compose -f docker/docker-compose.yml build --no-cache 2>&1 | tail -40
+sudo docker compose build --no-cache 2>&1 | tail -40
 ```
 
 Häufige Ursachen:
@@ -291,7 +332,7 @@ sudo docker logs picpool-app --tail 50
 - **`Konfiguration ungueltig`** — in der `.env` fehlt etwas. Die Meldung nennt
   das Feld.
 - **`EACCES` oder `permission denied`** — `PICPOOL_UID`/`PICPOOL_GID` passen
-  nicht. Nochmal `id picpool` prüfen.
+  nicht. Nochmal `id` prüfen und die Zahlen in die `.env` übernehmen.
 - **Sofortiger Neustart in Schleife** — meist ein nicht eingehängter
   Shared Folder.
 

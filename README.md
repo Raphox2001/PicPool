@@ -31,7 +31,7 @@ Kurzfassung:
 ```bash
 cd /volume1/docker && sudo git clone https://github.com/Raphox2001/PicPool.git picpool
 cd picpool && sudo cp .env.example .env && sudo vi .env
-sudo docker compose -f docker/docker-compose.yml up -d --build
+sudo docker compose up -d --build
 ```
 
 Danach `https://deine-domain/admin` aufrufen — beim ersten Mal wird die
@@ -86,9 +86,10 @@ apps/gallery/         Galerie für Gäste (PhotoSwipe)
 apps/admin/           Verwaltung (React)
 packages/shared/      Gemeinsame Typen und die MIME-Allowlist
 
+docker-compose.yml    Gehärtet: unprivilegiert, read-only, ein Mount
+
 docker/
   Dockerfile          Mehrstufig, ein Image für App und Worker
-  docker-compose.yml  Gehärtet: unprivilegiert, read-only, ein Mount
   dsm-update.sh       Update-Aufgabe für den DSM-Aufgabenplaner
 
 docs/
