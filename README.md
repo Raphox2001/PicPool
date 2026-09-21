@@ -17,10 +17,31 @@ still abbricht.
 |---|---|---|
 | **P0** | Fundament: Konfiguration, Datenbank, Job-Queue, Docker, Health-Checks | **fertig** |
 | **P1** | Upload-Kern: tus, Derivate, HEIC, Dedupe, Upload-Seite | **fertig** |
-| P2 | Galerie, Download, ZIP | offen |
+| **P2** | Galerie, Download, ZIP | **fertig** |
 | P3 | Admin, Login, 2FA, QR-Codes | offen |
 | P4 | Videos: Poster-Frames, Wiedergabe | offen |
-| P5 | Deployment auf der NAS, Härtung, Backup | offen |
+| P5 | Deployment auf der NAS, Härtung, Backup, Update-Mechanismus | offen |
+
+### Geplant für P5: Updates aus dem Adminpanel
+
+Das Panel soll Updates anstoßen können, ohne dafür Rechte zu bekommen, die es
+gefährlich machen. Ein Container, der sich selbst aktualisiert, braucht Zugriff
+auf den Docker-Socket — und der ist gleichbedeutend mit Root auf der ganzen
+NAS. Das würde die gesamte Kapselung aushebeln (Worker ohne Netzwerk,
+`cap_drop: ALL`, schreibgeschütztes Dateisystem, ein einziger Mount).
+
+Stattdessen wird der privilegierte Teil dorthin verlagert, wo er hingehört:
+
+1. Das Panel fragt die GitHub-Releases ab und zeigt verfügbare Versionen samt
+   Änderungsliste an.
+2. „Jetzt aktualisieren" schreibt lediglich eine Markierungsdatei ins
+   Datenverzeichnis. Mehr kann der Container nicht, und mehr braucht er nicht.
+3. Eine **DSM-Aufgabenplanung**, einmalig eingerichtet, prüft regelmäßig auf
+   diese Datei und führt dann Image-Pull und Neustart aus.
+
+Die Datenbank-Migrationen laufen beim Start ohnehin automatisch; ein Update ist
+damit nur ein Image-Tausch. Die vollständige Einrichtungsanleitung für die
+DSM-Aufgabe kommt mit P5 in dieses README.
 
 ## Aufbau
 
@@ -107,6 +128,77 @@ App läuft ausschließlich über die Jobs-Tabelle.
 Originale liegen als gewöhnliche Dateien in einer lesbaren Struktur — kein Blob-Store.
 Sie lassen sich im File Station verschieben, per Hyper Backup sichern oder in die
 Synology-Photos-Bibliothek übernehmen, ohne dass PicPool beteiligt sein muss.
+
+### Wichtig für Sicherungen: die Datenbank nicht einfach mitkopieren
+
+Die Datenbank läuft im WAL-Modus. Ein erheblicher Teil der Daten kann dabei in
+`picpool.db-wal` liegen und noch nicht in der Hauptdatei stehen — beobachtet
+wurden 1,7 MB im WAL gegenüber 168 KB in der Datenbankdatei.
+
+Wer nur `picpool.db` kopiert oder sie bei laufendem Server von einem zweiten
+Prozess aus liest, bekommt einen unvollständigen Stand. SQLite meldet dann
+`database disk image is malformed`, obwohl die Datenbank in Ordnung ist. Nach
+einem sauberen Checkpoint lieferte dieselbe Datei `integrity_check: ok`.
+
+Für Sicherungen gilt deshalb:
+
+- entweder die SQLite-Backup-API benutzen (kommt in P5 als CLI-Befehl),
+- oder den Container kurz anhalten und erst dann kopieren,
+- oder **alle drei Dateien** sichern: `picpool.db`, `-wal` und `-shm`.
+
+Die Bilder selbst sind davon nicht betroffen — die liegen als gewöhnliche
+Dateien und lassen sich jederzeit kopieren.
+
+## Galerie (P2)
+
+Der Galerie-Link zeigt das Album ohne Anmeldung, nur über das Token.
+
+- **Chronologisch**, nach Kalendertagen gruppiert. Grundlage ist das
+  EXIF-Aufnahmedatum, ersatzweise das Dateidatum.
+- **Filter nach Person** — erscheint nur, wenn mehr als eine beigetragen hat.
+- **ThumbHash-Platzhalter**: ein unscharfes Vorschaubild steht sofort, ohne
+  einen einzigen Netzabruf, und wird ersetzt, sobald das Thumbnail da ist.
+  Dadurch springt beim Laden nichts.
+- **Videos** mit Abspielsymbol, Dauer und Poster-Frame; abgespielt wird in der
+  Lightbox direkt aus dem Original.
+- **Download** einzeln, als Mehrfachauswahl (langes Drücken) oder als ZIP.
+
+### Abgestufte Auflösung
+
+Gemessen an einem Foto aus dem Gerätetest:
+
+| Stufe | Größe | Wofür |
+|---|---|---|
+| Thumbnail | 4,6 KB | Raster |
+| Vorschau | 78 KB | Lightbox |
+| Original | 1,38 MB | nur beim Download |
+
+Das Raster eines ganzen Albums kostet damit einen Bruchteil dessen, was die
+Originale wiegen.
+
+### ZIP-Download
+
+Ohne Kompression (Store-Modus): JPEG, HEIC und MP4 sind bereits komprimiert,
+ein Deflate-Durchlauf brächte praktisch nichts, kostet auf dem Ryzen der NAS
+aber spürbar Rechenzeit. Der Archivstrom geht direkt an den Client, es entsteht
+keine Zwischendatei und der Speicherverbrauch bleibt flach.
+
+Im Archiv liegen die Dateien nach Person in Ordnern, mit dem Aufnahmedatum im
+Namen — `raphael/2026-09-20-08-47-14_1000162875.jpg` statt der nichtssagenden
+Kameranummer.
+
+### Zugriffsregeln
+
+| | Ansehen | Original / Download |
+|---|---|---|
+| Downloads erlaubt | ja | ja |
+| Downloads gesperrt | ja | **403** |
+| Downloads gesperrt, aber im LAN und freigegeben | ja | ja |
+
+Die LAN-Erkennung vergleicht die Client-Adresse mit den konfigurierten
+Subnetzen. Sie ist nur verlässlich, weil `trustProxy` eng auf den Reverse Proxy
+begrenzt ist — sonst könnte sich ein Gast per `X-Forwarded-For` eine LAN-Adresse
+andichten. Die Prüfung ist in `apps/server/src/lib/network.test.ts` abgedeckt.
 
 ## Verwaltung von der Kommandozeile
 

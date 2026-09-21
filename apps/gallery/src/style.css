@@ -1,0 +1,264 @@
+@import 'photoswipe/style.css';
+
+/*
+ * Galerie.
+ *
+ * Leitlinie: Die Bilder sind der Inhalt, alles andere tritt zurueck. Das
+ * Raster laedt zuerst unscharfe Platzhalter aus dem ThumbHash, damit die
+ * Seite sofort steht und beim Nachladen nichts springt.
+ */
+
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --ink: #16191d;
+  --muted: #5d6470;
+  --line: #d9dde4;
+  --accent: #1f6feb;
+  --accent-ink: #ffffff;
+  --radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101317;
+    --card: #1b1f25;
+    --ink: #f0f2f5;
+    --muted: #9aa3b2;
+    --line: #2b3039;
+    --accent: #4b8ff5;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding-bottom: 5rem;
+}
+
+.muted { color: var(--muted); }
+.small { font-size: 0.88rem; }
+.hidden { display: none !important; }
+
+/* --- Kopfbereich --- */
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  padding: 0.9rem 1rem 0;
+}
+
+.top-inner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 78rem;
+  margin: 0 auto;
+}
+
+.titles { min-width: 0; }
+
+h1 {
+  font-size: 1.3rem;
+  margin: 0 0 0.1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#subtitle { margin: 0; }
+
+.btn {
+  flex: 0 0 auto;
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.btn.ghost { background: transparent; color: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+
+/* --- Filter nach Person --- */
+
+.chips {
+  display: flex;
+  gap: 0.45rem;
+  overflow-x: auto;
+  padding: 0.75rem 0 0.8rem;
+  max-width: 78rem;
+  margin: 0 auto;
+  /* Auf dem Handy soll die Leiste seitlich scrollen, nicht umbrechen. */
+  scrollbar-width: none;
+}
+.chips::-webkit-scrollbar { display: none; }
+
+.chip {
+  flex: 0 0 auto;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.chip .n { opacity: 0.65; margin-left: 0.3rem; font-variant-numeric: tabular-nums; }
+
+/* --- Inhalt --- */
+
+#main { max-width: 78rem; margin: 0 auto; padding: 1rem; }
+
+.status { color: var(--muted); text-align: center; padding: 2.5rem 1rem; }
+
+.day-head {
+  position: sticky;
+  top: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 1.25rem 0 0.5rem;
+  background: linear-gradient(var(--bg) 70%, transparent);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 5px;
+}
+
+@media (min-width: 600px) {
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 7px; }
+}
+
+.tile {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--line) center/cover no-repeat;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+}
+
+.tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.tile img.geladen { opacity: 1; }
+
+/* Videokennzeichen: Dauer unten rechts, Symbol in der Mitte. */
+.tile .dur {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  padding: 1px 5px;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 4px;
+}
+
+.tile .play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* Auswahlhaken */
+.pick {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tile[aria-selected="true"] { outline: 3px solid var(--accent); outline-offset: -3px; }
+.tile[aria-selected="true"] .pick { background: var(--accent); border-color: var(--accent); }
+
+/* --- Auswahlleiste --- */
+
+.selbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+}
+
+.selbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 78rem;
+  margin: 0 auto;
+}
+
+#sel-count { font-weight: 600; }
+.selbar-actions { display: flex; gap: 0.5rem; }
+
+/* Videos in der Lightbox */
+.pswp__video {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  background: #000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile img { transition: none; }
+}

@@ -21,6 +21,7 @@
     "@picpool/shared": "*",
     "@tus/file-store": "^1.5.1",
     "@tus/server": "^1.10.1",
+    "archiver": "^8.0.0",
     "better-sqlite3": "^11.8.1",
     "exif-reader": "^2.0.2",
     "fastify": "^5.2.1",
@@ -31,6 +32,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@types/archiver": "^8.0.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.13.10",
     "@types/qrcode": "^1.5.6",

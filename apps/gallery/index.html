@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Galerie</title>
+  </head>
+  <body>
+    <header class="top">
+      <div class="top-inner">
+        <div class="titles">
+          <h1 id="album">Wird geladen …</h1>
+          <p id="subtitle" class="muted small"></p>
+        </div>
+        <button id="dl-all" class="btn hidden" type="button">Alle herunterladen</button>
+      </div>
+
+      <!-- Filter nach Person. Erscheint nur, wenn mehr als eine beigetragen hat. -->
+      <nav id="chips" class="chips hidden" aria-label="Nach Person filtern"></nav>
+    </header>
+
+    <main id="main">
+      <p id="status" class="status">Wird geladen …</p>
+      <div id="days"></div>
+    </main>
+
+    <!-- Leiste fuer die Mehrfachauswahl, erscheint bei Bedarf -->
+    <footer id="selbar" class="selbar hidden">
+      <div class="selbar-inner">
+        <span id="sel-count"></span>
+        <div class="selbar-actions">
+          <button id="sel-clear" class="btn ghost" type="button">Aufheben</button>
+          <button id="sel-dl" class="btn" type="button">Herunterladen</button>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

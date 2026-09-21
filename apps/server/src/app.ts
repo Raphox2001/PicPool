@@ -9,6 +9,7 @@ import { probeCapabilities, capabilityWarnings, type MediaCapabilities } from '.
 import { registerPublicRoutes } from './routes/public.js';
 import { registerUploadRoutes } from './routes/upload.js';
 import { registerPageRoutes } from './routes/pages.js';
+import { registerGalleryRoutes } from './routes/gallery.js';
 import { registerNetTestRoutes } from './routes/nettest.js';
 
 /** Legt die Verzeichnisstruktur im Datenvolume an, falls sie noch fehlt. */
@@ -106,6 +107,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerHealthRoutes(app, caps);
   registerPublicRoutes(app);
   await registerUploadRoutes(app);
+  registerGalleryRoutes(app);
   await registerPageRoutes(app);
 
   if (cfg.netTestEnabled) {

@@ -7,63 +7,85 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Liefert die Upload-Seite aus.
+ * Liefert die beiden Gastseiten aus: Upload und Galerie.
  *
- * Die gebauten Dateien liegen unter apps/upload/dist. Aus dist/routes heraus
- * sind das vier Ebenen nach oben; im Entwicklungsbetrieb mit tsx eine
+ * Die gebauten Dateien liegen unter apps/<name>/dist. Aus dist/routes heraus
+ * sind das vier Ebenen nach oben, im Entwicklungsbetrieb mit tsx eine
  * weniger. Beide Faelle werden geprueft, damit der Start nicht davon abhaengt,
  * wie der Prozess gestartet wurde.
  */
-function findUploadDist(): string | null {
+function findDist(appName: string): string | null {
   const candidates = [
-    path.resolve(here, '../../../upload/dist'),      // dist/routes -> apps/upload/dist
-    path.resolve(here, '../../../../upload/dist'),   // src/routes  -> apps/upload/dist
-    path.resolve(process.cwd(), 'apps/upload/dist'),
+    path.resolve(here, `../../../${appName}/dist`),
+    path.resolve(here, `../../../../${appName}/dist`),
+    path.resolve(process.cwd(), `apps/${appName}/dist`),
   ];
   return candidates.find((c) => fs.existsSync(path.join(c, 'index.html'))) ?? null;
 }
 
-export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
-  const dist = findUploadDist();
+interface PageApp {
+  /** Verzeichnisname unter apps/ */
+  name: string;
+  /** Pfadpraefix der Gastseite, z.B. /u/ */
+  route: string;
+  /** Praefix, unter dem die gebauten Dateien liegen */
+  assetPrefix: string;
+  hint: string;
+}
 
-  if (!dist) {
-    app.log.error(
-      'Upload-Seite nicht gefunden. Wurde "npm run build --workspace apps/upload" ausgefuehrt?',
+const PAGES: PageApp[] = [
+  { name: 'upload', route: '/u/:token', assetPrefix: '/upload-assets/', hint: 'Upload-Seite' },
+  { name: 'gallery', route: '/g/:token', assetPrefix: '/gallery-assets/', hint: 'Galerie' },
+];
+
+export async function registerPageRoutes(app: FastifyInstance): Promise<void> {
+  let first = true;
+
+  for (const page of PAGES) {
+    const dist = findDist(page.name);
+
+    if (!dist) {
+      app.log.error(
+        `${page.hint} nicht gefunden. Wurde "npm run build --workspace apps/${page.name}" ausgefuehrt?`,
+      );
+      continue;
+    }
+
+    await app.register(fastifyStatic, {
+      root: dist,
+      prefix: page.assetPrefix,
+      // Die Dateinamen tragen einen Inhalts-Hash, sind also unveraenderlich.
+      maxAge: '1y',
+      immutable: true,
+      index: false,
+      list: false,
+      // reply.sendFile darf nur einmal angelegt werden.
+      decorateReply: first,
+    });
+    first = false;
+
+    const indexHtml = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
+
+    app.get(page.route, async (_req, reply) =>
+      // Das Token wird hier absichtlich NICHT geprueft. Die Seite laedt und
+      // fragt anschliessend selbst nach; so bekommt der Gast eine freundliche
+      // Meldung im gewohnten Layout statt einer nackten Fehlerseite.
+      reply
+        .type('text/html; charset=utf-8')
+        // Kein Caching: sonst zeigt ein zurueckkehrender Gast eine veraltete
+        // Seite, waehrend die Asset-Namen sich laengst geaendert haben.
+        .header('Cache-Control', 'no-store')
+        .header('Referrer-Policy', 'no-referrer')
+        .send(indexHtml),
     );
-    return;
+
+    app.log.info({ dist }, `${page.hint} gefunden`);
   }
 
-  app.log.info({ dist }, 'Upload-Seite gefunden');
-
-  await app.register(fastifyStatic, {
-    root: dist,
-    prefix: '/upload-assets/',
-    // Die Dateinamen tragen einen Inhalts-Hash, sind also unveraenderlich.
-    maxAge: '1y',
-    immutable: true,
-    index: false,
-    // Nur die gebauten Dateien ausliefern, kein Verzeichnislisting.
-    list: false,
-  });
-
-  const indexHtml = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
-
-  app.get<{ Params: { token: string } }>('/u/:token', async (req, reply) => {
-    // Der Token wird hier absichtlich NICHT geprueft. Die Seite laedt und
-    // fragt anschliessend selbst nach; so bekommt der Gast eine freundliche
-    // Meldung im gewohnten Layout statt einer nackten Fehlerseite.
-    void req;
-    return reply
-      .type('text/html; charset=utf-8')
-      // Kein Caching: sonst zeigt ein zurueckkehrender Gast eine veraltete
-      // Seite, waehrend die Asset-Namen sich laengst geaendert haben.
-      .header('Cache-Control', 'no-store')
-      .header('Referrer-Policy', 'no-referrer')
-      .send(indexHtml);
-  });
-
-  // Ein Aufruf ohne Token soll nicht ins Leere laufen.
-  app.get('/u', async (_req, reply) =>
-    reply.code(404).type('text/plain; charset=utf-8').send('Es fehlt der Teil nach /u/ im Link.'),
-  );
+  // Aufrufe ohne Token sollen nicht ins Leere laufen.
+  for (const p of ['/u', '/g']) {
+    app.get(p, async (_req, reply) =>
+      reply.code(404).type('text/plain; charset=utf-8').send('Es fehlt der Teil nach dem Schraegstrich im Link.'),
+    );
+  }
 }
