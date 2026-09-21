@@ -24,6 +24,9 @@ export interface GalleryAsset {
   originalFilename: string;
   bytes: number;
   hasPreview: number;
+  videoCodec: string | null;
+  /** 1, wenn eine H.264-Fassung vorliegt. */
+  hasH264: number;
 }
 
 /**
@@ -40,10 +43,15 @@ export function listGalleryAssets(albumId: string): GalleryAsset[] {
               a.taken_at AS takenAt, a.taken_at_source AS takenAtSource,
               a.width, a.height, a.duration_ms AS durationMs,
               a.thumbhash, a.original_filename AS originalFilename, a.bytes,
+              a.video_codec AS videoCodec,
               EXISTS (
                 SELECT 1 FROM derivatives d
                  WHERE d.asset_id = a.id AND d.variant IN ('preview','poster')
-              ) AS hasPreview
+              ) AS hasPreview,
+              EXISTS (
+                SELECT 1 FROM derivatives d2
+                 WHERE d2.asset_id = a.id AND d2.variant = 'video_h264'
+              ) AS hasH264
          FROM assets a
          LEFT JOIN uploaders u ON u.id = a.uploader_id
         WHERE a.album_id = ?
@@ -62,7 +70,7 @@ export interface DerivativeRow {
 
 export function getDerivative(
   assetId: string,
-  variant: 'thumb' | 'preview' | 'poster',
+  variant: 'thumb' | 'preview' | 'poster' | 'video_h264',
 ): DerivativeRow | null {
   return (
     (getDb()

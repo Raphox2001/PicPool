@@ -76,6 +76,7 @@ export interface AlbumSettings {
   allowDownloads: boolean;
   allowOriginalsOnLan: boolean;
   stripGps: boolean;
+  transcodeVideos: boolean;
   maxFiles: number | null;
   maxBytes: number | null;
 }
@@ -104,6 +105,8 @@ export interface AdminAsset {
   durationMs: number | null;
   originalFilename: string;
   bytes: number;
+  videoCodec: string | null;
+  hasH264: number;
 }
 
 export interface UploaderInfo {

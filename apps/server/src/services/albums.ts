@@ -17,6 +17,7 @@ export interface Album {
   max_bytes: number | null;
   max_files: number | null;
   cover_asset_id: string | null;
+  transcode_videos: number;
 }
 
 export interface CreateAlbumInput {

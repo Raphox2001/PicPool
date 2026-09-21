@@ -21,6 +21,7 @@ export function AlbumDetail({ id, onBack }: { id: string; onBack: () => void }) 
   const [error, setError] = useState<string | null>(null);
   const [confirmName, setConfirmName] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [transcodeMsg, setTranscodeMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const d = await api.get<Detail & { ok: boolean }>(`/albums/${id}`);
@@ -133,12 +134,43 @@ export function AlbumDetail({ id, onBack }: { id: string; onBack: () => void }) 
           hint="Betrifft nur die Vorschauen. Die Originale bleiben unverändert."
         />
         <Toggle
+          checked={album.settings.transcodeVideos}
+          onChange={(v) => void patch({ transcodeVideos: v })}
+          label="Videos für alle Browser aufbereiten"
+          hint="Erzeugt zusätzlich eine H.264-Fassung für Videos, die manche Browser nicht abspielen — vor allem HEVC vom iPhone. Die NAS hat dafür keine Hardware-Unterstützung, das dauert je Video länger als seine Laufzeit. Das Original bleibt unverändert."
+        />
+        <Toggle
           checked={album.archivedAt !== null}
           onChange={(v) => void patch({ archived: v })}
           label="Archiviert"
           hint="Archivierte Alben sind über ihre Links nicht mehr erreichbar."
         />
       </section>
+
+      {album.settings.transcodeVideos && (
+        <section className="panel">
+          <h2>Video-Aufbereitung</h2>
+          <p className="muted small">
+            Stößt die H.264-Aufbereitung für alle Videos an, die sie brauchen und noch keine
+            haben. Bereits laufende oder fertige bleiben unberührt.
+          </p>
+          {transcodeMsg && <p className="ok-text">{transcodeMsg}</p>}
+          <button
+            className="btn ghost"
+            onClick={async () => {
+              const r = await api.post<{ queued: number }>(`/albums/${id}/transcode`);
+              setTranscodeMsg(
+                r.queued === 0
+                  ? 'Nichts zu tun — alle betroffenen Videos sind bereits aufbereitet.'
+                  : `${r.queued} ${r.queued === 1 ? 'Video' : 'Videos'} eingereiht. Das läuft im Hintergrund.`,
+              );
+              await load();
+            }}
+          >
+            Jetzt aufbereiten
+          </button>
+        </section>
+      )}
 
       {/* --- Beitragende --- */}
       {uploaders.length > 0 && (
@@ -167,6 +199,7 @@ export function AlbumDetail({ id, onBack }: { id: string; onBack: () => void }) 
                 <th>Von</th>
                 <th>Aufgenommen</th>
                 <th>Größe</th>
+                <th>Codec</th>
                 <th />
               </tr>
             </thead>
@@ -180,6 +213,16 @@ export function AlbumDetail({ id, onBack }: { id: string; onBack: () => void }) 
                   <td className="small">{a.uploaderName ?? '–'}</td>
                   <td className="small muted">{formatDateTime(a.takenAt)}</td>
                   <td className="small muted">{formatBytes(a.bytes)}</td>
+                  <td className="small muted">
+                    {a.kind === 'video' ? (
+                      <>
+                        {a.videoCodec ?? '–'}
+                        {a.hasH264 ? <span className="badge ok">H.264 da</span> : null}
+                      </>
+                    ) : (
+                      '–'
+                    )}
+                  </td>
                   <td>
                     <button
                       className="link-btn danger"

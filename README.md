@@ -19,7 +19,7 @@ still abbricht.
 | **P1** | Upload-Kern: tus, Derivate, HEIC, Dedupe, Upload-Seite | **fertig** |
 | **P2** | Galerie, Download, ZIP | **fertig** |
 | **P3** | Admin, Login, 2FA, QR-Codes | **fertig** |
-| P4 | Videos: Poster-Frames, Wiedergabe | offen |
+| **P4** | Videos: Poster-Frames, Wiedergabe, H.264-Fallback | **fertig** |
 | **P5** | Deployment auf der NAS, Härtung, Backup, Update-Mechanismus | **fertig** |
 
 ## Auf der NAS einrichten
@@ -296,6 +296,61 @@ Erzeugt ein neues Passwort mit rund 117 Bit Entropie und beendet alle
 Sitzungen. Das Passwort wird erzeugt statt entgegengenommen — ein Passwort als
 Kommandozeilenargument stünde sonst in der Shell-Historie und in der
 Prozessliste.
+
+## Videos (P4)
+
+Poster-Frame, Dauer und korrekte Ausrichtung entstehen schon beim Hochladen.
+Abgespielt wird in der Lightbox direkt aus dem Original — sofern der Browser
+den Codec kann.
+
+### Das Problem
+
+Handys nehmen Codecs auf, die nicht jeder Browser abspielt. Der wichtigste
+Fall ist **HEVC vom iPhone**: Safari kann es, Firefox nicht, Chrome je nach
+Gerät. Ohne Gegenmaßnahme sieht ein Gast dann einen schwarzen Kasten.
+
+### Die Lösung
+
+Pro Album lässt sich **„Videos für alle Browser aufbereiten"** einschalten.
+Dann entsteht zusätzlich eine H.264-Fassung, die praktisch überall läuft. Das
+Original bleibt unangetastet und wird weiterhin heruntergeladen.
+
+Die Galerie fragt den Browser selbst (`canPlayType`), statt zu raten:
+
+| Situation | Was passiert |
+|---|---|
+| Browser kann den Codec | Original, keine Umwege |
+| Browser kann nicht, Ersatzfassung da | H.264-Fassung |
+| Browser kann nicht, keine Ersatzfassung | Original plus Hinweis, warum es vielleicht nicht läuft |
+
+### Warum nicht einfach immer
+
+Die DS923+ hat **keine iGPU**, also keinerlei Hardware-Unterstützung. Jede
+Umwandlung ist reine Rechenarbeit auf zwei Kernen und dauert länger als das
+Video selbst. Deshalb:
+
+- standardmäßig **aus**, pro Album einschaltbar
+- niedrigste Warteschlangen-Priorität — Bilder und frische Uploads gehen vor
+- `preset veryfast`, auf 1280 px längste Kante begrenzt, zwei Threads: Es geht
+  um Abspielbarkeit im Browser, nicht um Archivqualität
+- Videos über 15 Minuten werden übersprungen; wer die ansehen will, lädt sie
+  herunter
+
+Wird die Einstellung eingeschaltet, werden auch die bereits vorhandenen Videos
+erfasst — sonst gälte sie nur für künftige Uploads, was niemand erwartet.
+
+### Nachgewiesen
+
+Mit einem echten HEVC-Video (1920×1080, `hvc1`-Tag wie vom iPhone):
+
+- Aufbereitung erzeugte H.264 High, `yuv420p`, 1280×720
+- Galerie-API meldet `videoCodec: hevc` und `hasH264: 1`
+- Ein Browser **ohne** HEVC-Unterstützung wählte selbstständig die
+  H.264-Fassung und lud sie vollständig
+- Ohne Ersatzfassung erschien der erklärende Hinweis statt eines schwarzen
+  Kastens
+- Bei gesperrtem Download: Original **403**, H.264-Fassung **200** — Ansehen
+  bleibt erlaubt, Herunterladen nicht
 
 ## Verwaltung von der Kommandozeile
 

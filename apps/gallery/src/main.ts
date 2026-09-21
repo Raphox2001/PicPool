@@ -31,6 +31,52 @@ interface Asset {
   thumbhash: string | null;
   originalFilename: string;
   bytes: number;
+  videoCodec: string | null;
+  /** 1, wenn eine H.264-Fassung vorliegt. */
+  hasH264: number;
+}
+
+/**
+ * Waehlt die Videoquelle.
+ *
+ * Handys nehmen Codecs auf, die nicht jeder Browser abspielen kann - allen
+ * voran HEVC vom iPhone: Safari kann es, Firefox nicht, Chrome je nach
+ * Geraet. Statt das zu erraten, wird der Browser selbst gefragt.
+ *
+ * Reicht das Original nicht und liegt eine H.264-Fassung vor, wird die
+ * genommen. Gibt es keine, bleibt es beim Original - vielleicht klappt es
+ * ja doch, und falls nicht, sagt die Oberflaeche warum.
+ */
+function pickVideoSource(asset: Asset): { variant: 'original' | 'h264'; warn: boolean } {
+  const codec = (asset.videoCodec ?? '').toLowerCase();
+
+  // canPlayType will einen MIME-Typ mit Codec-Angabe. Die gebraeuchlichen
+  // Kennungen fuer die Faelle, die tatsaechlich vorkommen:
+  const probe: Record<string, string> = {
+    hevc: 'video/mp4; codecs="hvc1"',
+    h265: 'video/mp4; codecs="hvc1"',
+    av1: 'video/mp4; codecs="av01.0.05M.08"',
+    vp9: 'video/webm; codecs="vp9"',
+    vp8: 'video/webm; codecs="vp8"',
+    h264: 'video/mp4; codecs="avc1.42E01E"',
+  };
+
+  const type = probe[codec];
+  if (!type) {
+    // Unbekannter oder nicht hinterlegter Codec: Original versuchen.
+    return { variant: 'original', warn: false };
+  }
+
+  const verdict = document.createElement('video').canPlayType(type);
+  // "probably" und "maybe" gelten beide als Ja - bei "maybe" liegt der
+  // Browser selten daneben, und ein unnoetiger Umweg ueber die grosse
+  // Ersatzdatei waere teurer als ein seltener Fehlversuch.
+  if (verdict === 'probably' || verdict === 'maybe') {
+    return { variant: 'original', warn: false };
+  }
+
+  if (asset.hasH264) return { variant: 'h264', warn: false };
+  return { variant: 'original', warn: true };
 }
 
 interface Uploader {
@@ -64,7 +110,7 @@ let uploaders: Uploader[] = [];
 let filterUploaderId: string | null = null;
 const selected = new Set<string>();
 
-const mediaUrl = (id: string, variant: 'thumb' | 'preview' | 'original', download = false): string =>
+const mediaUrl = (id: string, variant: 'thumb' | 'preview' | 'original' | 'h264', download = false): string =>
   `/api/g/${token}/a/${id}/${variant}${download ? '?dl=1' : ''}`;
 
 void init();
@@ -412,22 +458,48 @@ function setupLightbox(): void {
     if (data.type !== 'video' || !data.assetId) return;
 
     e.preventDefault();
+
+    const asset = assets.find((a) => a.id === data.assetId);
+    const choice = asset ? pickVideoSource(asset) : { variant: 'original' as const, warn: false };
+
     const video = document.createElement('video');
     video.className = 'pswp__video';
     video.controls = true;
     video.playsInline = true;
     video.preload = 'metadata';
     video.poster = mediaUrl(data.assetId, 'preview');
-    video.src = mediaUrl(data.assetId, 'original');
+    video.src = mediaUrl(data.assetId, choice.variant);
+
     // PhotoSwipe typisiert element enger, als es zur Laufzeit zulaesst;
     // ein Videoelement ist dort ausdruecklich vorgesehen.
-    (content as unknown as { element: HTMLElement }).element = video;
+    if (!choice.warn) {
+      (content as unknown as { element: HTMLElement }).element = video;
+      return;
+    }
+
+    // Weder abspielbar noch eine Ersatzfassung vorhanden: erklaeren statt
+    // einen schwarzen Kasten zeigen. Herunterladen funktioniert weiterhin.
+    const wrap = document.createElement('div');
+    wrap.className = 'pswp__video-wrap';
+    wrap.appendChild(video);
+
+    const note = document.createElement('p');
+    note.className = 'pswp__video-note';
+    note.textContent =
+      'Dieses Video kann dein Browser möglicherweise nicht abspielen' +
+      (asset?.videoCodec ? ` (${asset.videoCodec.toUpperCase()})` : '') +
+      '. Herunterladen funktioniert trotzdem.';
+    wrap.appendChild(note);
+
+    (content as unknown as { element: HTMLElement }).element = wrap;
   });
 
   // Ein angehaltenes Video soll nicht im Hintergrund weiterlaufen.
   lightbox.on('contentDeactivate', (e) => {
     const el = e.content.element;
     if (el instanceof HTMLVideoElement) el.pause();
+    // Bei der Hinweis-Variante steckt das Video eine Ebene tiefer.
+    else el?.querySelector('video')?.pause();
   });
 
   // Schaltflaeche zum Herunterladen der Originaldatei.

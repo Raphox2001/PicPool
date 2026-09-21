@@ -5,6 +5,7 @@ import { ensureDataDirs } from './app.js';
 import { probeCapabilities, capabilityWarnings } from './lib/media.js';
 import { claimNext, completeJob, failJob, requeueStale, enqueue, type Job, type JobType } from './jobs/queue.js';
 import { processAsset } from './jobs/processAsset.js';
+import { transcodeVideo } from './jobs/transcodeVideo.js';
 import { purgeExpiredSessions } from './services/auth.js';
 import { cleanupIncoming } from './services/maintenance.js';
 
@@ -27,6 +28,7 @@ type Handler = (payload: unknown, job: Job) => Promise<void>;
 
 const handlers: Partial<Record<JobType, Handler>> = {
   process_asset: async (payload) => processAsset(payload),
+  transcode_video: async (payload) => transcodeVideo(payload),
   cleanup_incoming: async () => {
     const r = await cleanupIncoming();
     if (r.incomingRemoved > 0 || r.orphanDerivatives > 0) {

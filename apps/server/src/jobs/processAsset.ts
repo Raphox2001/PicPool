@@ -8,7 +8,9 @@ import { getDb, nowIso } from '../db/index.js';
 import { getConfig } from '../config.js';
 import { randomId } from '../lib/crypto.js';
 import { assertWithinRoot } from '../lib/slug.js';
-import { openImage, probeVideo, extractPosterFrame } from '../lib/media.js';
+import { openImage, probeVideo, extractPosterFrame, needsH264Fallback } from '../lib/media.js';
+import { getAlbumById } from '../services/albums.js';
+import { enqueue } from './queue.js';
 import { getAsset, absolutePathOf, type Asset } from '../services/assets.js';
 
 /**
@@ -170,10 +172,18 @@ async function processVideo(asset: Asset): Promise<void> {
   const hash = await computeThumbhash(posterBuf);
   const takenAt = parseIsoLike(info.creationTime) ?? (await fileMtime(abs));
 
+  // Ob eine H.264-Fassung noetig ist, entscheidet sich am Codec. Ohne ihn
+  // abgelegt zu haben, liesse sich das spaeter nicht mehr beantworten, ohne
+  // jede Datei erneut zu untersuchen.
+  const fallbackNeeded = needsH264Fallback(info.codec);
+  const album = getAlbumById(asset.album_id);
+  const albumWants = album?.transcode_videos === 1;
+
   getDb()
     .prepare(
       `UPDATE assets SET width = ?, height = ?, duration_ms = ?, thumbhash = ?,
-                         taken_at = ?, taken_at_source = ? WHERE id = ?`,
+                         taken_at = ?, taken_at_source = ?, video_codec = ?,
+                         transcode_status = ? WHERE id = ?`,
     )
     .run(
       info.width,
@@ -182,8 +192,16 @@ async function processVideo(asset: Asset): Promise<void> {
       hash,
       takenAt,
       info.creationTime ? 'exif' : 'mtime',
+      info.codec,
+      fallbackNeeded && albumWants ? 'pending' : null,
       asset.id,
     );
+
+  if (fallbackNeeded && albumWants) {
+    // Niedrigste Prioritaet: Bilder und frische Uploads gehen vor. Auf zwei
+    // Kernen ohne Hardware-Unterstuetzung dauert das ohnehin.
+    enqueue('transcode_video', { assetId: asset.id }, { priority: 900, maxAttempts: 2 });
+  }
 }
 
 // ---------------------------------------------------------------------------

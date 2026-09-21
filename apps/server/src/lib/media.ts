@@ -222,6 +222,92 @@ export async function extractPosterFrame(filePath: string, durationMs: number | 
 }
 
 // ---------------------------------------------------------------------------
+// H.264-Fallback
+// ---------------------------------------------------------------------------
+
+/**
+ * Codecs, die verbreitet Probleme machen.
+ *
+ * HEVC ist der wichtigste Fall: iPhones nehmen standardmaessig so auf,
+ * Safari spielt es ab, Firefox nicht und Chrome nur je nach Geraet. AV1 und
+ * VP9 in MP4-Containern sind seltener, aber gleich gelagert.
+ *
+ * H.264 laeuft dagegen praktisch ueberall - deshalb ist es das Ziel.
+ */
+const PROBLEMATIC_CODECS = new Set(['hevc', 'h265', 'av1', 'vp9', 'vp8', 'mpeg4', 'msmpeg4v3']);
+
+export function needsH264Fallback(codec: string | null): boolean {
+  if (!codec) return false;
+  return PROBLEMATIC_CODECS.has(codec.toLowerCase());
+}
+
+export interface TranscodeOptions {
+  /** Laengste Kante der Ausgabe. Daruber wird verkleinert. */
+  maxEdge?: number;
+  /** Abbruch, wenn es laenger dauert. Schuetzt vor Endlosarbeit. */
+  timeoutMs?: number;
+}
+
+/**
+ * Erzeugt eine H.264-Fassung.
+ *
+ * Die Einstellungen sind auf die DS923+ zugeschnitten. Der Ryzen R1600 hat
+ * keine iGPU, also keinerlei Hardware-Unterstuetzung - jede Umwandlung ist
+ * reine Rechenarbeit auf zwei Kernen.
+ *
+ * Deshalb:
+ *  - preset veryfast statt medium. Die Datei wird etwas groesser, aber die
+ *    Umwandlung dauert einen Bruchteil. Bei einem Vorschauvideo zaehlt Tempo
+ *    mehr als die letzten Prozent Kompression.
+ *  - Begrenzung auf 1280 px laengste Kante. Es geht um Abspielbarkeit im
+ *    Browser, nicht um Archivqualitaet - das Original bleibt unangetastet.
+ *  - threads 2, damit der Worker die NAS nicht vollstaendig auslastet und
+ *    daneben noch Uploads angenommen werden koennen.
+ *  - faststart, damit die Wiedergabe beginnt, bevor die Datei ganz geladen ist.
+ */
+export async function transcodeToH264(
+  inputPath: string,
+  outputPath: string,
+  opts: TranscodeOptions = {},
+): Promise<void> {
+  const cfg = getConfig();
+  const maxEdge = opts.maxEdge ?? 1280;
+
+  await run(
+    cfg.worker.ffmpeg,
+    [
+      '-hide_banner',
+      '-loglevel', 'error',
+      '-y',
+      '-i', inputPath,
+      // Nur verkleinern, nie vergroessern; gerade Kantenlaengen, weil
+      // H.264 mit ungeraden Werten nicht umgehen kann.
+      '-vf', `scale='min(${maxEdge},iw)':'min(${maxEdge},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2`,
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '26',
+      '-profile:v', 'high',
+      '-level', '4.0',
+      // yuv420p ist die Variante, die wirklich jeder Browser versteht.
+      '-pix_fmt', 'yuv420p',
+      '-threads', '2',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-ac', '2',
+      // Verschiebt den Index an den Dateianfang.
+      '-movflags', '+faststart',
+      // Format ausdruecklich angeben. Geschrieben wird unter einem
+      // Zwischennamen mit der Endung .part, und daraus kann ffmpeg das
+      // Ausgabeformat nicht ableiten - es bricht sonst mit "Unable to choose
+      // an output format" ab.
+      '-f', 'mp4',
+      outputPath,
+    ],
+    opts.timeoutMs ?? 30 * 60_000,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Selbsttest
 // ---------------------------------------------------------------------------
 

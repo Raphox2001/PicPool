@@ -30,7 +30,7 @@ import {
  * Datei liesse sich im Browser als HTML ausfuehren.
  */
 
-type Variant = 'thumb' | 'preview' | 'original';
+type Variant = 'thumb' | 'preview' | 'original' | 'h264';
 
 const CACHE_PRIVATE = 'private, max-age=604800, immutable';
 
@@ -107,7 +107,7 @@ export function registerGalleryRoutes(app: FastifyInstance): void {
       if (!resolved.ok) return reply.code(404).send({ ok: false });
 
       const variant = req.params.variant as Variant;
-      if (!['thumb', 'preview', 'original'].includes(variant)) {
+      if (!['thumb', 'preview', 'original', 'h264'].includes(variant)) {
         return reply.code(400).send({ ok: false });
       }
 
@@ -125,8 +125,15 @@ export function registerGalleryRoutes(app: FastifyInstance): void {
         return sendOriginal(reply, asset, req.query as { dl?: string });
       }
 
-      // Videos haben kein "preview", sondern ein "poster" aus einem Standbild.
-      const wanted = variant === 'preview' && asset.kind === 'video' ? 'poster' : variant;
+      // Die H.264-Fassung ist zum Ansehen da, nicht zum Herunterladen -
+      // sie unterliegt deshalb nicht der Download-Sperre. Wer das Original
+      // will, geht ueber die Variante "original".
+      const wanted =
+        variant === 'h264'
+          ? 'video_h264'
+          : variant === 'preview' && asset.kind === 'video'
+            ? 'poster'
+            : variant;
       const derivative = getDerivative(asset.id, wanted);
 
       if (!derivative) {
@@ -141,6 +148,7 @@ export function registerGalleryRoutes(app: FastifyInstance): void {
 
       return reply
         .type(derivative.mime)
+        .header('Accept-Ranges', 'bytes')
         .header('Cache-Control', CACHE_PRIVATE)
         .header('X-Content-Type-Options', 'nosniff')
         .header('Content-Security-Policy', "default-src 'none'; sandbox")

@@ -23,7 +23,8 @@ import {
 } from '../services/shareLinks.js';
 import { listUploadersWithCounts } from '../services/uploaders.js';
 import { listGalleryAssets } from '../services/gallery.js';
-import { queueStats } from '../jobs/queue.js';
+import { queueStats, enqueue } from '../jobs/queue.js';
+import { needsH264Fallback } from '../lib/media.js';
 
 /**
  * Verwaltung fuer den Betreiber.
@@ -69,6 +70,7 @@ function albumSummary(album: Album) {
       allowDownloads: album.allow_downloads === 1,
       allowOriginalsOnLan: album.allow_originals_on_lan === 1,
       stripGps: album.strip_gps === 1,
+      transcodeVideos: album.transcode_videos === 1,
       maxFiles: album.max_files,
       maxBytes: album.max_bytes,
     },
@@ -194,6 +196,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       allowDownloads?: boolean;
       allowOriginalsOnLan?: boolean;
       stripGps?: boolean;
+      transcodeVideos?: boolean;
       maxFiles?: number | null;
       maxGb?: number | null;
       archived?: boolean;
@@ -217,6 +220,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
     if (typeof b.allowDownloads === 'boolean') put('allow_downloads', b.allowDownloads ? 1 : 0);
     if (typeof b.allowOriginalsOnLan === 'boolean') put('allow_originals_on_lan', b.allowOriginalsOnLan ? 1 : 0);
     if (typeof b.stripGps === 'boolean') put('strip_gps', b.stripGps ? 1 : 0);
+    if (typeof b.transcodeVideos === 'boolean') put('transcode_videos', b.transcodeVideos ? 1 : 0);
     if (b.maxFiles !== undefined) put('max_files', b.maxFiles);
     if (b.maxGb !== undefined) put('max_bytes', b.maxGb === null ? null : Math.round(b.maxGb * 1024 ** 3));
     if (typeof b.archived === 'boolean') put('archived_at', b.archived ? nowIso() : null);
@@ -228,8 +232,16 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       .prepare(`UPDATE albums SET ${sets.join(', ')} WHERE id = ?`)
       .run(...values, album.id);
 
-    audit(req, 'album_updated', 'album', album.id, b);
-    return { ok: true, album: albumSummary(getAlbumById(album.id)!) };
+    // Wird die Aufbereitung eingeschaltet, sollen auch die Videos erfasst
+    // werden, die schon im Album liegen - sonst gaelte die Einstellung nur
+    // fuer kuenftige Uploads, was niemand erwartet.
+    let queued = 0;
+    if (b.transcodeVideos === true && album.transcode_videos !== 1) {
+      queued = enqueueTranscodesFor(album.id);
+    }
+
+    audit(req, 'album_updated', 'album', album.id, { ...b, queuedTranscodes: queued });
+    return { ok: true, album: albumSummary(getAlbumById(album.id)!), queuedTranscodes: queued };
   });
 
   /**
@@ -352,6 +364,17 @@ export function registerAdminRoutes(app: FastifyInstance): void {
     },
   );
 
+  /** Stoesst die Aufbereitung fuer alle betroffenen Videos eines Albums an. */
+  app.post<{ Params: { id: string } }>('/api/admin/albums/:id/transcode', guard, async (req, reply) => {
+    const album = getAlbumById(req.params.id);
+    if (!album) return reply.code(404).send({ ok: false });
+
+    const queued = enqueueTranscodesFor(album.id);
+    audit(req, 'transcode_requested', 'album', album.id, { count: queued });
+
+    return { ok: true, queued };
+  });
+
   // -------------------------------------------------------------------------
   // Moderation
   // -------------------------------------------------------------------------
@@ -414,4 +437,40 @@ export function registerAdminRoutes(app: FastifyInstance): void {
     audit(req, 'reprocess_failed', null, null, { count: failed.length });
     return { ok: true, count: failed.length };
   });
+}
+
+/**
+ * Reiht alle Videos eines Albums ein, die eine H.264-Fassung brauchen und
+ * noch keine haben.
+ *
+ * Bereits laufende oder fertige bleiben unberuehrt - ein zweiter Klick soll
+ * die NAS nicht doppelt beschaeftigen.
+ */
+function enqueueTranscodesFor(albumId: string): number {
+  const db = getDb();
+
+  const candidates = db
+    .prepare(
+      `SELECT a.id, a.video_codec
+         FROM assets a
+        WHERE a.album_id = ?
+          AND a.kind = 'video'
+          AND a.deleted_at IS NULL
+          AND a.status = 'ready'
+          AND (a.transcode_status IS NULL OR a.transcode_status = 'failed')
+          AND NOT EXISTS (
+            SELECT 1 FROM derivatives d
+             WHERE d.asset_id = a.id AND d.variant = 'video_h264'
+          )`,
+    )
+    .all(albumId) as Array<{ id: string; video_codec: string | null }>;
+
+  let queued = 0;
+  for (const c of candidates) {
+    if (!needsH264Fallback(c.video_codec)) continue;
+    db.prepare(`UPDATE assets SET transcode_status = 'pending' WHERE id = ?`).run(c.id);
+    enqueue('transcode_video', { assetId: c.id }, { priority: 900, maxAttempts: 2 });
+    queued++;
+  }
+  return queued;
 }
