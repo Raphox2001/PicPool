@@ -26,34 +26,31 @@ still abbricht.
 
 Vollständige Anleitung: **[docs/nas-deployment.md](docs/nas-deployment.md)**
 
-PicPool belegt zwei getrennte Orte:
+Es genügt eine einzige Datei: **[docker-compose.yml](docker-compose.yml)**. Kein
+Quellcode auf der NAS, kein Git, kein Build — das Image kommt fertig aus der
+GitHub Container Registry.
 
-| Was | Wohin |
-|---|---|
-| **Code** — Compose-Datei, Dockerfile, Quellen | `/volume1/docker/picpool`, zu den anderen Containern |
-| **Daten** — Bilder, Datenbank, Sicherungen | `/volume1/picpool`, eigener gemeinsamer Ordner |
+1. Gemeinsamen Ordner für die Daten anlegen, z. B. `picpool`
+2. Container Manager → **Projekt** → **Erstellen**, die `docker-compose.yml`
+   einfügen
+3. Die vier mit `ANPASSEN` markierten Stellen ausfüllen
+4. Starten
 
-Getrennt, weil ein gemeinsamer Ordner bei Synology die Einheit für Hyper
-Backup, Snapshots und Kontingente ist — sonst zieht dein Container-Backup
-plötzlich hunderte Gigabyte Fotos mit. Beides zusammenzulegen geht trotzdem,
-es ist nur ein Wert in der `.env`.
+Alles über die DSM-Oberfläche, SSH wird nicht gebraucht. Die vier Stellen sind
+die öffentliche Adresse, der Schlüssel (`openssl rand -base64 32`), dein
+Heimnetz und UID/GID deines Benutzers.
 
-Kurzfassung:
-
-```bash
-cd /volume1/docker && sudo git clone https://github.com/Raphox2001/PicPool.git picpool
-cd picpool && sudo cp .env.example .env && sudo vi .env
-sudo docker compose up -d --build
-```
-
-Alternativ über Container Manager → Projekt → Erstellen, mit dem Pfad
-`/volume1/docker/picpool`. Die `.env` muss vorher ausgefüllt sein.
-
-**Ganz ohne SSH** geht es auch — für jeden Befehl gibt es einen Weg über die
-DSM-Oberfläche. Siehe den Abschnitt „Einrichtung ohne SSH" in der Anleitung.
+Warum die Bilder in einen **eigenen** gemeinsamen Ordner gehören und nicht
+unter `docker/`: Ein gemeinsamer Ordner ist bei Synology die Einheit für Hyper
+Backup, Snapshots und Kontingente — sonst zieht dein Container-Backup plötzlich
+hunderte Gigabyte Fotos mit. Zusammenlegen geht trotzdem, es ist nur der
+Volume-Pfad in der Compose-Datei.
 
 Danach `https://deine-domain/admin` aufrufen — beim ersten Mal wird die
 Anmeldemaske zur Ersteinrichtung.
+
+> Aus dem Quellcode bauen statt das fertige Image zu ziehen:
+> `docker compose -f docker-compose.build.yml up -d --build`
 
 ### Updates aus dem Adminpanel
 
@@ -69,7 +66,8 @@ Stattdessen:
 2. „Jetzt aktualisieren" schreibt lediglich eine Markierungsdatei ins
    Datenverzeichnis. Mehr kann der Container nicht, und mehr braucht er nicht.
 3. Eine **DSM-Aufgabe** ([docker/dsm-update.sh](docker/dsm-update.sh)), einmalig
-   eingerichtet, prüft darauf, sichert die Datenbank, baut neu und startet durch.
+   eingerichtet, prüft darauf, sichert die Datenbank, holt das neue Image und
+   startet durch.
 
 Der privilegierte Teil liegt damit in DSM, wo er hingehört — und bleibt unter
 deiner Kontrolle.
@@ -104,11 +102,15 @@ apps/gallery/         Galerie für Gäste (PhotoSwipe)
 apps/admin/           Verwaltung (React)
 packages/shared/      Gemeinsame Typen und die MIME-Allowlist
 
-docker-compose.yml    Gehärtet: unprivilegiert, read-only, ein Mount
+docker-compose.yml        Für die NAS: fertiges Image, alles in einer Datei
+docker-compose.build.yml  Zum Selbstbauen aus dem Quellcode, liest die .env
 
 docker/
   Dockerfile          Mehrstufig, ein Image für App und Worker
   dsm-update.sh       Update-Aufgabe für den DSM-Aufgabenplaner
+
+.github/workflows/
+  image.yml           Baut das Image und legt es in ghcr.io ab
 
 docs/
   nas-deployment.md   Einrichtung auf der Synology
@@ -373,8 +375,8 @@ Mit einem echten HEVC-Video (1920×1080, `hvc1`-Tag wie vom iPhone):
 
 ## Verwaltung von der Kommandozeile
 
-Solange es die Admin-Oberfläche noch nicht gibt (P3), läuft die Verwaltung über die CLI.
-Auf der NAS:
+Alles Wesentliche geht auch im Adminpanel. Die CLI ist der Weg, wenn das Panel
+nicht erreichbar ist — oder für Aufgaben im Aufgabenplaner. Auf der NAS:
 
 ```bash
 docker exec picpool-app node apps/server/dist/cli.js album:create "Sommerfest 2026" --datum 2026-07-14

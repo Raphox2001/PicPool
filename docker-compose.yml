@@ -1,51 +1,82 @@
 # ---------------------------------------------------------------------------
-# PicPool auf Synology DSM (Container Manager)
+# PicPool - Einrichtung im Container Manager
 #
-# Vor dem ersten Start:
-#   1. Gemeinsamen Ordner anlegen, z.B. /volume1/picpool
-#   2. .env aus .env.example erzeugen und ausfuellen
-#   3. UID/GID eintragen - "id" genuegt, dein eigener DSM-Benutzer ist in
-#      Ordnung. Ein eigener Benutzer ist zusaetzliche Absicherung, aber
-#      keine Voraussetzung.
+# Es genuegt DIESE Datei. Kein Quellcode, kein Git, kein Build auf der NAS:
+# das Image wird fertig aus der GitHub Container Registry gezogen.
 #
-# Diese Datei liegt bewusst im Wurzelverzeichnis: Docker Compose sucht die
-# .env im Verzeichnis der Compose-Datei, und der Container Manager von DSM
-# findet sie hier ohne Umwege.
+#   1. Gemeinsamen Ordner fuer die Daten anlegen, z.B. /volume1/picpool
+#   2. Container Manager -> Projekt -> Erstellen -> docker-compose.yml einfuegen
+#   3. Unten die vier mit ANPASSEN markierten Stellen ausfuellen
+#   4. Starten
+#
+# Wer aus dem Quellcode bauen will, nimmt docker-compose.build.yml.
 # ---------------------------------------------------------------------------
+
+# Beide Container brauchen dieselben Werte. Deshalb stehen sie genau einmal
+# hier oben - insbesondere der Schluessel: haetten App und Worker
+# unterschiedliche, liessen sich verschluesselte Felder nicht mehr lesen.
+x-picpool-env: &picpool-env
+
+  # ANPASSEN (1/4) - Adresse, unter der PicPool erreichbar ist.
+  # Sie steht spaeter in jedem Upload-Link und in jedem QR-Code.
+  # OHNE Schraegstrich am Ende, sonst startet PicPool nicht.
+  #   Erst mal im Heimnetz:  http://192.168.0.110:8080
+  #   Spaeter mit Domain:    https://bilder.deine-domain.de
+  PICPOOL_PUBLIC_URL: "http://192.168.0.110:8080"
+
+  # ANPASSEN (2/4) - 32 Byte Zufall, base64. Erzeugen mit:
+  #   openssl rand -base64 32
+  # Verschluesselt die Share-Tokens und die 2FA-Geheimnisse. Geht er verloren,
+  # lassen sich vorhandene QR-Codes nicht mehr anzeigen und der zweite Faktor
+  # muss neu eingerichtet werden; die Bilder bleiben unberuehrt.
+  # Getrennt von der Datenbanksicherung aufbewahren - liegen beide zusammen,
+  # ist die Verschluesselung wirkungslos.
+  PICPOOL_SECRET_KEY: "HIER_EINTRAGEN"
+
+  # ANPASSEN (3/4) - dein Heimnetz. Nur diese Geraete bekommen, sofern pro
+  # Album erlaubt, die Originalaufloesung direkt in der Galerie.
+  # Leer lassen schaltet die Ausnahme ab.
+  PICPOOL_LAN_CIDRS: "192.168.0.0/24"
+
+  # Netz des Reverse Proxy, dem X-Forwarded-For geglaubt wird. Eng fassen:
+  # zu weit gefasst, koennte ein Gast sich per Kopfzeile eine LAN-Adresse
+  # andichten und an die Originale kommen. Der Vorgabewert passt zum
+  # DSM-Reverse-Proxy.
+  PICPOOL_TRUST_PROXY: "172.16.0.0/12"
+
+  # Das einzige gemountete Verzeichnis im Container. Nicht aendern.
+  PICPOOL_DATA_DIR: /data
+
+  # Das Wurzeldateisystem ist schreibgeschuetzt; ohne beschreibbares HOME
+  # scheitert Node beim Anlegen seiner Caches.
+  HOME: /tmp
 
 services:
   app:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    image: picpool:latest
+    image: ghcr.io/raphox2001/picpool:latest
     container_name: picpool-app
     restart: unless-stopped
     command: ["node", "apps/server/dist/index.js"]
 
-    # Standardmaessig nur an localhost der NAS gebunden. Von aussen erreichbar
-    # ausschliesslich ueber den Reverse Proxy.
-    #
-    # Fuer den Zugriff per NAS-IP aus dem Heimnetz in der .env
-    # PICPOOL_HOST_BIND=0.0.0.0 setzen. Bewusst hier ueber eine Variable und
-    # nicht durch Bearbeiten dieser Zeile: Diese Datei ist versioniert, eine
-    # Aenderung von Hand laesst jedes spaetere "git pull" scheitern.
+    # Solange kein Reverse Proxy davor steht, ist das der Zugang aus dem
+    # Heimnetz. Ist er eingerichtet, kann hier "127.0.0.1:8080:8080" stehen -
+    # dann ist PicPool von aussen ausschliesslich ueber den Proxy erreichbar.
     ports:
-      - "${PICPOOL_HOST_BIND:-127.0.0.1}:${PICPOOL_PORT:-8080}:8080"
+      - "8080:8080"
 
-    env_file: .env
-    environment:
-      PICPOOL_DATA_DIR: /data
-      PICPOOL_PORT: "8080"
-      # Das Wurzeldateisystem ist schreibgeschuetzt; ohne beschreibbares HOME
-      # scheitert Node beim Anlegen seiner Caches.
-      HOME: /tmp
+    environment: *picpool-env
 
     # Der EINZIGE Mount. Niemals /volume1 als Ganzes, niemals der Docker-Socket.
+    # ANPASSEN (4/4) - links der gemeinsame Ordner aus Schritt 1.
     volumes:
-      - ${PICPOOL_HOST_DATA:-/volume1/picpool}:/data
+      - /volume1/picpool:/data
 
-    user: "${PICPOOL_UID:?In .env eintragen - ermitteln mit: id}:${PICPOOL_GID:?In .env eintragen - ermitteln mit: id}"
+    # ANPASSEN (4/4) - UID und GID deines DSM-Benutzers, zu ermitteln mit  id
+    # Damit gehoeren die hochgeladenen Bilder diesem Benutzer und lassen sich
+    # im File Station normal oeffnen und verschieben. Ohne diese Zeile gehoeren
+    # sie root, und genau das soll hier nicht sein: Der Sinn des Projekts ist,
+    # dass die Originale gewoehnliche Dateien bleiben.
+    user: "1026:100"
 
     # --- Haertung ---
     read_only: true
@@ -57,9 +88,8 @@ services:
       - ALL
     init: true
 
-    # Keine cpus-Grenze: Der Synology-Kernel hat den CFS-Scheduler nicht, Docker
-    # bricht den Start dann mit "NanoCPUs can not be set" ab. Die Speichergrenze
-    # wird dagegen durchgesetzt.
+    # Keine cpus-Grenze: Der Synology-Kernel hat den CFS-Scheduler nicht,
+    # Docker bricht den Start dann mit "NanoCPUs can not be set" ab.
     deploy:
       resources:
         limits:
@@ -75,7 +105,7 @@ services:
         max-file: "5"
 
   worker:
-    image: picpool:latest
+    image: ghcr.io/raphox2001/picpool:latest
     container_name: picpool-worker
     restart: unless-stopped
     depends_on:
@@ -88,15 +118,14 @@ services:
     # ausschliesslich ueber die Jobs-Tabelle im gemeinsamen Volume.
     network_mode: none
 
-    env_file: .env
-    environment:
-      PICPOOL_DATA_DIR: /data
-      HOME: /tmp
+    environment: *picpool-env
 
+    # Muss derselbe Ordner sein wie oben.
     volumes:
-      - ${PICPOOL_HOST_DATA:-/volume1/picpool}:/data
+      - /volume1/picpool:/data
 
-    user: "${PICPOOL_UID:?In .env eintragen - ermitteln mit: id}:${PICPOOL_GID:?In .env eintragen - ermitteln mit: id}"
+    # Muss dieselbe UID/GID sein wie oben.
+    user: "1026:100"
 
     read_only: true
     tmpfs:

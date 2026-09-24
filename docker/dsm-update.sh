@@ -25,8 +25,10 @@ set -eu
 
 # --- Anpassen, falls deine Pfade abweichen ---------------------------------
 DATA_DIR="/volume1/picpool"
-COMPOSE_DIR="/volume1/docker/picpool"     # Verzeichnis mit der docker-compose.yml
-IMAGE_NAME="picpool:latest"
+
+# Verzeichnis mit der docker-compose.yml. Bei einem Projekt aus dem Container
+# Manager ist das /volume1/docker/<Projektname>.
+COMPOSE_DIR="/volume1/docker/picpool"
 # ---------------------------------------------------------------------------
 
 FLAG="$DATA_DIR/update-requested"
@@ -56,15 +58,6 @@ if docker ps --format '{{.Names}}' | grep -q '^picpool-app$'; then
     || log "WARNUNG: Sicherung fehlgeschlagen, Update wird trotzdem versucht"
 fi
 
-log "Hole neuen Stand aus Git …"
-if [ -d "$COMPOSE_DIR/.git" ]; then
-  git -C "$COMPOSE_DIR" pull --ff-only >> "$LOG" 2>&1 || {
-    log "FEHLER: git pull fehlgeschlagen"
-    exit 1
-  }
-fi
-
-log "Baue das Image neu …"
 # docker compose (mit Leerzeichen) auf neueren DSM-Versionen,
 # docker-compose (mit Bindestrich) auf aelteren.
 if docker compose version >/dev/null 2>&1; then
@@ -73,8 +66,11 @@ else
   COMPOSE="docker-compose"
 fi
 
-$COMPOSE build >> "$LOG" 2>&1 || {
-  log "FEHLER: Build fehlgeschlagen - die laufende Version bleibt unveraendert"
+log "Hole das neue Image …"
+# Faellt der Abruf aus, bleibt das bisherige Image liegen und die laufende
+# Version unveraendert - deshalb hier abbrechen und nicht trotzdem neu starten.
+$COMPOSE pull >> "$LOG" 2>&1 || {
+  log "FEHLER: Abruf fehlgeschlagen - die laufende Version bleibt unveraendert"
   exit 1
 }
 

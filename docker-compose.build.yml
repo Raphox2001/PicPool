@@ -1,0 +1,124 @@
+# ---------------------------------------------------------------------------
+# PicPool auf Synology DSM (Container Manager)
+#
+# Vor dem ersten Start:
+#   1. Gemeinsamen Ordner anlegen, z.B. /volume1/picpool
+#   2. .env aus .env.example erzeugen und ausfuellen
+#   3. UID/GID eintragen - "id" genuegt, dein eigener DSM-Benutzer ist in
+#      Ordnung. Ein eigener Benutzer ist zusaetzliche Absicherung, aber
+#      keine Voraussetzung.
+#
+# Diese Datei liegt bewusst im Wurzelverzeichnis: Docker Compose sucht die
+# .env im Verzeichnis der Compose-Datei, und der Container Manager von DSM
+# findet sie hier ohne Umwege.
+# ---------------------------------------------------------------------------
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: picpool:latest
+    container_name: picpool-app
+    restart: unless-stopped
+    command: ["node", "apps/server/dist/index.js"]
+
+    # Standardmaessig nur an localhost der NAS gebunden. Von aussen erreichbar
+    # ausschliesslich ueber den Reverse Proxy.
+    #
+    # Fuer den Zugriff per NAS-IP aus dem Heimnetz in der .env
+    # PICPOOL_HOST_BIND=0.0.0.0 setzen. Bewusst hier ueber eine Variable und
+    # nicht durch Bearbeiten dieser Zeile: Diese Datei ist versioniert, eine
+    # Aenderung von Hand laesst jedes spaetere "git pull" scheitern.
+    ports:
+      - "${PICPOOL_HOST_BIND:-127.0.0.1}:${PICPOOL_PORT:-8080}:8080"
+
+    env_file: .env
+    environment:
+      PICPOOL_DATA_DIR: /data
+      PICPOOL_PORT: "8080"
+      # Das Wurzeldateisystem ist schreibgeschuetzt; ohne beschreibbares HOME
+      # scheitert Node beim Anlegen seiner Caches.
+      HOME: /tmp
+
+    # Der EINZIGE Mount. Niemals /volume1 als Ganzes, niemals der Docker-Socket.
+    volumes:
+      - ${PICPOOL_HOST_DATA:-/volume1/picpool}:/data
+
+    user: "${PICPOOL_UID:?In .env eintragen - ermitteln mit: id}:${PICPOOL_GID:?In .env eintragen - ermitteln mit: id}"
+
+    # --- Haertung ---
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+
+    # Keine cpus-Grenze: Der Synology-Kernel hat den CFS-Scheduler nicht, Docker
+    # bricht den Start dann mit "NanoCPUs can not be set" ab. Die Speichergrenze
+    # wird dagegen durchgesetzt.
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+
+    networks:
+      - picpool
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  worker:
+    image: picpool:latest
+    container_name: picpool-worker
+    restart: unless-stopped
+    depends_on:
+      - app
+    command: ["node", "apps/server/dist/worker.js"]
+
+    # KEIN Netzwerk. Hier wird fremdes Bild- und Videomaterial geparst, also
+    # genau dort, wo Decoder-Schwachstellen sitzen. Ohne Netzwerkzugang sitzt
+    # ein Ausbruch in einer Sackgasse. Die Verstaendigung mit der App laeuft
+    # ausschliesslich ueber die Jobs-Tabelle im gemeinsamen Volume.
+    network_mode: none
+
+    env_file: .env
+    environment:
+      PICPOOL_DATA_DIR: /data
+      HOME: /tmp
+
+    volumes:
+      - ${PICPOOL_HOST_DATA:-/volume1/picpool}:/data
+
+    user: "${PICPOOL_UID:?In .env eintragen - ermitteln mit: id}:${PICPOOL_GID:?In .env eintragen - ermitteln mit: id}"
+
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+
+    # Siehe oben: cpus laesst sich auf der NAS nicht setzen.
+    deploy:
+      resources:
+        limits:
+          memory: 2560M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  picpool:
+    driver: bridge

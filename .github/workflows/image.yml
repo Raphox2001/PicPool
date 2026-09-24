@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# Baut das Container-Image und legt es in der GitHub Container Registry ab.
+#
+# Damit muss auf der NAS nichts mehr gebaut werden: docker compose zieht das
+# fertige Image. Das Bauen auf einer DS923+ dauerte mehrere Minuten und
+# verlangte Arbeitsspeicher, den die NAS neben den anderen Containern kaum hat.
+#
+# Ergebnis: ghcr.io/raphox2001/picpool:latest  (und :1.2.3 je Release)
+# ---------------------------------------------------------------------------
+
+name: Image veroeffentlichen
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/raphox2001/picpool
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          # Nur amd64: Synology-Modelle mit x86-Prozessor (DS923+ und
+          # Verwandte). Fuer die ARM-Modelle muesste hier linux/arm64 dazu -
+          # das verdoppelt die Bauzeit, weil es unter QEMU emuliert wird.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
