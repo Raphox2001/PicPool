@@ -175,6 +175,29 @@ spätestens, bevor das Panel aus dem Internet erreichbar wird.
 
 Erst jetzt, wenn feststeht, dass alles läuft.
 
+### Vorher: der Name muss auf die NAS zeigen
+
+Hast du eine feste IP, zeigt ein A-Eintrag darauf und gut. Sonst hält DynDNS
+einen Namen aktuell — bei Synology unter Systemsteuerung → **Externer Zugriff**
+→ **DDNS**.
+
+Aktuell gehalten wird dabei immer nur **ein** Name. Eine Unteradresse wie
+`bilder.deine-domain.de` gehört deshalb als **CNAME** auf diesen DDNS-Namen,
+nicht als eigener A-Eintrag: Ein A-Eintrag trägt eine feste IP, und die ist
+nach dem nächsten Zwangstrennen deines Anschlusses falsch — mit dem Ergebnis,
+dass PicPool sich nicht mehr erreichen lässt und das Zertifikat nicht mehr
+erneuert werden kann.
+
+Prüfen lässt sich das von jedem Rechner aus:
+
+```bash
+nslookup bilder.deine-domain.de
+```
+
+Heraus kommen muss die öffentliche IP deines Anschlusses.
+
+### Reverse Proxy einrichten
+
 Systemsteuerung → **Anmeldeportal** → **Reverse Proxy** → Erstellen:
 
 | | |
@@ -193,19 +216,33 @@ Unter **Benutzerdefinierte Kopfzeile** → Erstellen → **WebSocket** hinzufüg
 > Anfragegröße aktiv ist. Uploads laufen zwar abschnittsweise in Paketen von
 > 2 MB, aber eine sehr niedrig gesetzte Grenze würde auch die blockieren.
 
-**Zertifikat:** Systemsteuerung → Zertifikat → Hinzufügen → Let's Encrypt.
-Danach unter *Konfigurieren* dem Reverse-Proxy-Eintrag zuweisen.
+**Am Router:** **Port 443** und **Port 80** auf die NAS weiterleiten. Die
+DSM-Ports 5000 und 5001 bleiben geschlossen — sonst steht deine NAS-Anmeldung
+im Internet.
 
-**Am Router:** Nur **Port 443** auf die NAS weiterleiten. Die DSM-Ports 5000
-und 5001 bleiben geschlossen — sonst steht deine NAS-Anmeldung im Internet.
+> Port 80 ist keine Nachlässigkeit, sondern Bedingung: Let's Encrypt weist den
+> Besitz einer Adresse über eine Datei nach, die es über **http** abruft. Ohne
+> offenen Port 80 gibt es für eine eigene Domain kein Zertifikat — und in 90
+> Tagen keine Erneuerung, worauf jeder Browser die Seite sperrt. Die Ausnahme
+> sind Synology-eigene Adressen auf `.synology.me`; für die regelt DSM den
+> Nachweis über DNS und Port 80 bleibt entbehrlich.
+>
+> Offen bleiben muss er dauerhaft, nicht nur einmal: Die Erneuerung läuft
+> automatisch und still, und sie scheitert genauso still. Auf Port 80 antwortet
+> lediglich die Weiterleitung nach https — dort liegt nichts, was jemand
+> abgreifen könnte.
 
-Von einem Gerät **außerhalb** deines Netzes prüfen:
+**Zertifikat:** Systemsteuerung → Zertifikat → Hinzufügen → Let's Encrypt, als
+Domain den Namen aus dem Reverse Proxy. Danach unter *Konfigurieren* dem
+Reverse-Proxy-Eintrag zuweisen.
+
+Von einem Gerät **außerhalb** deines Netzes prüfen — Mobilfunk genügt, WLAN aus:
 
 ```bash
-nmap -Pn -p 443,5000,5001 deine-domain.de
+nmap -Pn -p 80,443,5000,5001 deine-domain.de
 ```
 
-Erwartet: 443 offen, 5000 und 5001 gefiltert oder geschlossen.
+Erwartet: 80 und 443 offen, 5000 und 5001 gefiltert oder geschlossen.
 
 **Danach zwei Änderungen in der Compose-Datei** (Container Manager → Projekt →
 Bearbeiten):
@@ -225,6 +262,30 @@ Die Änderung an `PICPOOL_PUBLIC_URL` ist gefahrlos: Links und QR-Codes werden
 bei jedem Aufruf neu aus diesem Wert gebaut, vorhandene Tokens bleiben gültig.
 Bereits **ausgedruckte** QR-Codes zeigen allerdings weiter auf die alte
 Adresse.
+
+### Vorsicht mit dem zweiten Schritt: kann dein Router Hairpin?
+
+Ruf deine Adresse einmal von einem Gerät **im WLAN** auf. Antwortet sie von
+unterwegs, aber zu Hause nicht, kann dein Router kein NAT-Hairpin: Er biegt
+eine Anfrage an die eigene öffentliche Adresse nicht wieder nach innen um.
+Fritzboxen können das, viele Kabelrouter — etwa die Vodafone Station — nicht.
+
+Für die Gäste ist das gleichgültig, die kommen von außen. Für **dich** ist es
+das nicht: Mit `127.0.0.1:8080:8080` wäre PicPool von deinem eigenen Rechner
+aus dann über keinen Weg mehr erreichbar — über die Adresse nicht, über die IP
+nicht. Zum Verwalten müsstest du jedes Mal ins Mobilfunknetz wechseln.
+
+Lass `ports:` in dem Fall auf `"8080:8080"`. Auf dem Port liegt dieselbe
+Anwendung, nur unverschlüsselt und nur für Geräte in deinem Haushalt
+erreichbar. Das Sitzungs-Cookie trägt `Secure` genau dann, wenn die Verbindung
+verschlüsselt ist — beide Zugänge funktionieren also nebeneinander, ohne sich
+die Anmeldung zu zerschießen.
+
+> Sollen deine Gäste auch im eigenen WLAN stehen — Feier zu Hause, QR-Code an
+> der Wand —, dann brauchst du den Namen drinnen wie draußen. Der Weg dahin
+> ist die NAS als DNS-Server: Paket-Zentrum → DNS Server, eine Zone für deine
+> Adresse, die auf die lokale IP zeigt, und im Router die NAS als DNS-Server
+> verteilen. Manche Kabelrouter lassen Letzteres nicht zu.
 
 ## 8. Updates
 
