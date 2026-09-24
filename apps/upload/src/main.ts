@@ -89,6 +89,15 @@ interface Item {
   queuedAt: number;
   /** Gesetzt, wenn die Datei am Ende nicht mehr lesbar war. */
   unreadable?: boolean;
+  /**
+   * Die eigene Kopie der Datei. Sobald sie steht, wird aus ihr hochgeladen
+   * und nicht mehr aus dem Verweis, den Android uns jederzeit entziehen darf.
+   */
+  data?: Blob;
+  /** Erst wenn das Sichern durch ist, darf der Upload starten. */
+  prepared?: boolean;
+  /** Fuer das Vorschaubild: zeigt nach dem Sichern auf die Kopie. */
+  thumbEl: HTMLImageElement | null;
   attempts: number;
   lastErrorDetail?: string;
   /** Index in CHUNK_SIZES - steigt bei jedem Fehlschlag um eins. */
@@ -242,11 +251,89 @@ function addFiles(files: File[]): void {
   $('list').classList.remove('hidden');
   $('bar').classList.remove('hidden');
 
-  for (const file of files) items.push(createRow(file));
+  const fresh = files.map((file) => createRow(file));
+  items.push(...fresh);
 
   void acquireWakeLock();
-  pump();
+  // Zuerst sichern, dann hochladen - siehe secureFiles.
+  void secureFiles(fresh);
   render();
+}
+
+/**
+ * Obergrenze fuer die Kopien im Speicher.
+ *
+ * Darueber hinaus wird nicht mehr kopiert, sondern wie zuvor direkt aus dem
+ * Verweis gelesen. Lieber ein Upload, der es versuchen muss, als eine Seite,
+ * die dem Handy den Speicher wegnimmt.
+ */
+const SNAPSHOT_BUDGET = 512 * 1024 * 1024;
+let snapshotUsed = 0;
+
+/**
+ * Zieht sofort beim Auswaehlen eine eigene Kopie jeder Datei.
+ *
+ * Android reicht dem Browser keine Datei, sondern einen Verweis darauf - und
+ * der ist kurzlebig. Gemessen am 24.09.2026: Nach acht bis fuenfundzwanzig
+ * Sekunden war nichts mehr zu lesen. Bei zwanzig Dateien in der Schlange
+ * kamen deshalb nur die ersten beiden an, alle weiteren scheiterten mit einem
+ * Fehler, der von aussen wie ein Funkloch aussah - null Bytes gesendet, keine
+ * HTTP-Antwort.
+ *
+ * Die Kopie kostet Speicher, aber sie gehoert uns. Sie entsteht in der
+ * Reihenfolge der Auswahl, und jeder fertig gesicherte Eintrag darf sofort
+ * losgeschickt werden - das Lesen von der Platte ist um Groessenordnungen
+ * schneller als der Upload, das Sichern laeuft dem Hochladen also davon.
+ */
+async function secureFiles(fresh: Item[]): Promise<void> {
+  for (const item of fresh) {
+    if (item.state === 'wartet') item.note.textContent = 'wird gesichert …';
+
+    try {
+      if (snapshotUsed + item.file.size <= SNAPSHOT_BUDGET) {
+        item.data = new Blob([await item.file.arrayBuffer()], { type: item.file.type });
+        snapshotUsed += item.file.size;
+        adoptThumb(item);
+      }
+      item.prepared = true;
+      if (item.state === 'wartet') item.note.textContent = 'wartet';
+    } catch {
+      // Schon hier nicht lesbar: Der Verweis war tot, bevor wir ihn benutzen
+      // konnten. Ein Upload-Versuch waere reine Zeitverschwendung.
+      markUnreadable(item);
+    }
+
+    pump();
+  }
+
+  render();
+}
+
+/**
+ * Laesst das Vorschaubild auf die Kopie zeigen.
+ *
+ * Sonst bricht es genauso weg wie der Upload: Ein Objekt-URL auf den
+ * Android-Verweis zeigt ins Leere, sobald der eingezogen wurde - der Gast
+ * saehe kaputte Bilder neben seinen Dateien.
+ */
+function adoptThumb(item: Item): void {
+  if (!item.thumbEl || !item.data) return;
+  const url = URL.createObjectURL(item.data);
+  releaseThumb(item);
+  item.thumbUrl = url;
+  item.thumbEl.src = url;
+}
+
+/** Eine Datei, die schon beim Auswaehlen nicht mehr zu lesen war. */
+function markUnreadable(item: Item): void {
+  item.state = 'fehler';
+  item.unreadable = true;
+  item.prepared = true;
+  item.row.classList.add('err');
+  item.mark.textContent = '✕';
+  item.note.textContent = UNREADABLE_NOTE;
+  item.lastErrorDetail = 'Datei liess sich schon beim Auswaehlen nicht lesen';
+  reportError(item, new Error('Datei nicht lesbar'), null, true);
 }
 
 function createRow(file: File): Item {
@@ -294,6 +381,7 @@ function createRow(file: File): Item {
 
   return {
     file, row, fill, note, mark, thumbUrl,
+    thumbEl: isImage ? (thumb as HTMLImageElement) : null,
     state: 'wartet', bytesSent: 0, attempts: 0, chunkLevel: 0,
     queuedAt: Date.now(),
   };
@@ -306,7 +394,8 @@ function createRow(file: File): Item {
 /** Startet so viele Uploads, wie gleichzeitig erlaubt sind. */
 function pump(): void {
   while (running < CONCURRENCY) {
-    const next = items.find((i) => i.state === 'wartet');
+    // Nur gesicherte Eintraege: alles andere wartet noch auf seine Kopie.
+    const next = items.find((i) => i.state === 'wartet' && i.prepared);
     if (!next) break;
     startUpload(next);
   }
@@ -322,7 +411,8 @@ function startUpload(item: Item): void {
 
   const chunkSize = CHUNK_SIZES[item.chunkLevel] ?? CHUNK_SIZES[CHUNK_SIZES.length - 1]!;
 
-  const upload = new tus.Upload(item.file, {
+  // Aus der Kopie, wenn es eine gibt - siehe secureFiles.
+  const upload = new tus.Upload(item.data ?? item.file, {
     endpoint: '/api/upload',
     chunkSize,
     // Erst nach mehreren stillen Neuversuchen gilt ein Upload als
@@ -483,7 +573,7 @@ function isTransportError(err: Error): boolean {
  * Handy nicht nachvollziehbar - genau die Blindheit, die den Photo Request
  * so mühsam macht.
  */
-function reportError(item: Item, err: Error, upload: tus.Upload, unreadable = false): void {
+function reportError(item: Item, err: Error, upload: tus.Upload | null, unreadable = false): void {
   const anyErr = err as Error & {
     originalResponse?: { getStatus?: () => number; getBody?: () => string };
     originalRequest?: { getMethod?: () => string; getURL?: () => string };
@@ -519,7 +609,7 @@ function reportError(item: Item, err: Error, upload: tus.Upload, unreadable = fa
     message,
     httpStatus,
     responseBody,
-    uploadUrl: upload.url ?? undefined,
+    uploadUrl: upload?.url ?? undefined,
     bytesSent: item.bytesSent,
     attempt: item.attempts,
     userAgent: navigator.userAgent.slice(0, 380),
@@ -602,6 +692,10 @@ function explainError(err: Error): string {
 function retryFailed(): void {
   for (const item of items) {
     if (item.state !== 'fehler') continue;
+    // Ohne Kopie und ohne lesbaren Verweis gibt es nichts zu wiederholen -
+    // diese Datei muss der Gast neu auswaehlen. Ein Neuversuch wuerde nur
+    // wieder scheitern und den Eindruck erwecken, es liege am Netz.
+    if (item.unreadable && !item.data) continue;
     item.state = 'wartet';
     item.row.classList.remove('err');
     item.mark.textContent = '';

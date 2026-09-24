@@ -159,7 +159,7 @@ curl http://127.0.0.1:8080/readyz
 `/readyz` meldet `degraded`, wenn die Medien-Toolchain unvollständig ist — insbesondere
 wenn der HEVC-Decoder fehlt. Das ist Absicht, siehe unten.
 
-## Zwei Entscheidungen, die leicht zu übersehen sind
+## Drei Entscheidungen, die leicht zu übersehen sind
 
 ### HEIC braucht ffmpeg, nicht sharp
 
@@ -171,6 +171,26 @@ zwar bei jedem iPhone-Foto.
 
 PicPool dekodiert HEIC deshalb über ffmpeg (MJPEG als Zwischenformat) und prüft die
 Verfügbarkeit des HEVC-Decoders beim Start. Details in `apps/server/src/lib/media.ts`.
+
+### Die Upload-Seite kopiert jede Datei sofort
+
+Was Androids Dateiauswähler dem Browser gibt, ist keine Datei, sondern ein
+Verweis darauf — und den darf das System jederzeit wieder einziehen. Gemessen
+am 24.09.2026 auf einem Android-Handy: Nach **8 bis 25 Sekunden** war nichts
+mehr zu lesen. Bei zwanzig ausgewählten Dateien kamen deshalb nur die ersten
+beiden an.
+
+Das Tückische ist das Fehlerbild. Der Upload meldet einen reinen
+Netzwerkfehler: null Bytes gesendet, keine HTTP-Antwort, im Serverlog nichts.
+Das sieht nach Funkloch, Proxy oder MTU aus — und führt einen halben Tag lang
+in die Irre. Es scheitert im WLAN genauso wie über Mobilfunk, weil es mit dem
+Netz nichts zu tun hat.
+
+Deshalb zieht die Seite beim Auswählen sofort eine eigene Kopie und lädt aus
+der hoch (`secureFiles` in `apps/upload/src/main.ts`). Das kostet Speicher —
+daher die Obergrenze von 512 MB. Lässt sich eine Datei schon dabei nicht
+lesen, sagt die Seite dem Gast, dass er sie neu auswählen soll, statt ihn auf
+die Verbindung zu verweisen.
 
 ### Der Worker hat kein Netzwerk
 
