@@ -98,6 +98,12 @@ services:
 
     user: "${PICPOOL_UID:?In .env eintragen - ermitteln mit: id}:${PICPOOL_GID:?In .env eintragen - ermitteln mit: id}"
 
+    # Der Health-Check aus dem Image fragt Port 8080 ab, den nur die App
+    # bedient. Der Worker hoert auf gar nichts - ohne diese Zeile stuende er
+    # dauerhaft auf "unhealthy".
+    healthcheck:
+      disable: true
+
     read_only: true
     tmpfs:
       - /tmp:size=2g,mode=1777

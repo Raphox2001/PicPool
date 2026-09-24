@@ -127,6 +127,14 @@ services:
     # Muss dieselbe UID/GID sein wie oben.
     user: "1026:100"
 
+    # Der Health-Check aus dem Image fragt Port 8080 ab. Den bedient nur die
+    # App; der Worker hoert auf gar nichts, er arbeitet die Jobs-Tabelle ab.
+    # Ohne diese Zeile stuende er im Container Manager dauerhaft auf
+    # "unhealthy" - eine rote Meldung, die nichts bedeutet und die echte
+    # verdecken wuerde.
+    healthcheck:
+      disable: true
+
     read_only: true
     tmpfs:
       - /tmp:size=2g,mode=1777
