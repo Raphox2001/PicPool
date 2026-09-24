@@ -81,6 +81,14 @@ interface Item {
   upload?: tus.Upload;
   /** Fuer den Fehlerbericht: wie weit war der Upload gekommen. */
   bytesSent: number;
+  /**
+   * Wann die Datei ausgewaehlt wurde. Zusammen mit `dateiLesbar` zeigt das,
+   * ob Dateien mit zunehmender Wartezeit unlesbar werden - genau das Muster,
+   * das Android erzeugt, wenn es einen Verweis wieder einzieht.
+   */
+  queuedAt: number;
+  /** Gesetzt, wenn die Datei am Ende nicht mehr lesbar war. */
+  unreadable?: boolean;
   attempts: number;
   lastErrorDetail?: string;
   /** Index in CHUNK_SIZES - steigt bei jedem Fehlschlag um eins. */
@@ -287,6 +295,7 @@ function createRow(file: File): Item {
   return {
     file, row, fill, note, mark, thumbUrl,
     state: 'wartet', bytesSent: 0, attempts: 0, chunkLevel: 0,
+    queuedAt: Date.now(),
   };
 }
 
@@ -340,7 +349,7 @@ function startUpload(item: Item): void {
       markDone(item, info.duplicate === true);
     },
     onError(err: Error) {
-      markFailed(item, err, upload);
+      void markFailed(item, err, upload);
     },
   });
 
@@ -386,13 +395,19 @@ function markDone(item: Item, duplicate: boolean): void {
   pump();
 }
 
-function markFailed(item: Item, err: Error, upload: tus.Upload): void {
+async function markFailed(item: Item, err: Error, upload: tus.Upload): Promise<void> {
   running--;
+
+  // Erst die Datei selbst pruefen, bevor ueber kleinere Pakete nachgedacht
+  // wird: Ging kein einziges Byte raus, liegt es womoeglich gar nicht am Netz.
+  const unreadable =
+    isTransportError(err) && item.bytesSent === 0 && !(await isFileStillReadable(item.file));
 
   // Nur Netz- und Serverfehler rechtfertigen einen Versuch mit kleineren
   // Paketen. Eine abgelehnte Datei oder ein ungueltiger Link werden dadurch
   // nicht besser - da waere ein erneuter Versuch nur Zeitverschwendung.
-  const worthShrinking = isTransportError(err) && item.chunkLevel < CHUNK_SIZES.length - 1;
+  const worthShrinking =
+    !unreadable && isTransportError(err) && item.chunkLevel < CHUNK_SIZES.length - 1;
 
   if (worthShrinking) {
     item.chunkLevel++;
@@ -409,15 +424,41 @@ function markFailed(item: Item, err: Error, upload: tus.Upload): void {
 
   // Endgueltig gescheitert - erst jetzt wird gemeldet, damit das Log nicht
   // mit Zwischenversuchen volllaeuft.
-  reportError(item, err, upload);
+  reportError(item, err, upload, unreadable);
 
   item.state = 'fehler';
+  item.unreadable = unreadable;
   item.row.classList.remove('ok');
   item.row.classList.add('err');
   item.mark.textContent = '✕';
-  item.note.textContent = explainError(err);
+  item.note.textContent = unreadable ? UNREADABLE_NOTE : explainError(err);
   render();
   pump();
+}
+
+/** Was der Gast liest, wenn die Datei selbst nicht mehr greifbar ist. */
+const UNREADABLE_NOTE = 'nicht mehr lesbar – bitte neu auswählen';
+
+/**
+ * Prueft, ob die Datei ueberhaupt noch lesbar ist.
+ *
+ * Android reicht dem Browser keine Datei, sondern einen Verweis darauf, den
+ * das System wieder einziehen darf - etwa wenn die Aufnahme aus der Cloud kam
+ * oder die Galerie zwischendurch aufgeraeumt hat. Bei zwanzig Dateien in der
+ * Schlange sind die hinteren schnell zehn Minuten alt.
+ *
+ * Der Upload meldet dann einen reinen Netzwerkfehler ohne HTTP-Antwort -
+ * aeusserlich nicht von einem Funkloch zu unterscheiden, obwohl nie ein Byte
+ * das Geraet verlassen hat. Ein einzelnes Byte zu lesen kostet nichts und
+ * trennt die beiden Faelle.
+ */
+async function isFileStillReadable(file: File): Promise<boolean> {
+  try {
+    await file.slice(0, 1).arrayBuffer();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -442,7 +483,7 @@ function isTransportError(err: Error): boolean {
  * Handy nicht nachvollziehbar - genau die Blindheit, die den Photo Request
  * so mühsam macht.
  */
-function reportError(item: Item, err: Error, upload: tus.Upload): void {
+function reportError(item: Item, err: Error, upload: tus.Upload, unreadable = false): void {
   const anyErr = err as Error & {
     originalResponse?: { getStatus?: () => number; getBody?: () => string };
     originalRequest?: { getMethod?: () => string; getURL?: () => string };
@@ -498,10 +539,16 @@ function reportError(item: Item, err: Error, upload: tus.Upload): void {
       `chunkStufe=${item.chunkLevel + 1}/${CHUNK_SIZES.length}`,
       `chunk=${Math.round((CHUNK_SIZES[item.chunkLevel] ?? 0) / 1024)}KB`,
       `parallel=${CONCURRENCY}`,
+      // Der wichtigste Unterschied im Fehlerbericht: lag es am Netz oder war
+      // die Datei schon nicht mehr da?
+      `dateiLesbar=${unreadable ? 'nein' : 'ja'}`,
+      `wartezeit=${Math.round((Date.now() - item.queuedAt) / 1000)}s`,
     ].join(' '),
   };
 
-  item.lastErrorDetail = `${message}${httpStatus ? ` [HTTP ${httpStatus}]` : ''}`;
+  item.lastErrorDetail = unreadable
+    ? `Datei nicht mehr lesbar (${message})`
+    : `${message}${httpStatus ? ` [HTTP ${httpStatus}]` : ''}`;
 
   try {
     const body = JSON.stringify(payload);
@@ -610,6 +657,18 @@ function finish(): void {
     $('failed').classList.remove('hidden');
     $('failed-title').textContent =
       failed === 1 ? 'Eine Datei konnte nicht hochgeladen werden' : `${failed} Dateien konnten nicht hochgeladen werden`;
+
+    // Bei unlesbaren Dateien hilft der Satz vom schlechten Empfang nicht
+    // weiter - "nochmal versuchen" auch nicht, denn der Verweis bleibt tot.
+    // Hier hilft nur, sie erneut auszuwaehlen.
+    const unreadable = items.filter((i) => i.state === 'fehler' && i.unreadable).length;
+    $('failed-text').textContent =
+      unreadable === failed
+        ? 'Dein Handy konnte diese Dateien nicht mehr lesen — Android gibt sie nach einer Weile wieder frei. Bitte wähle sie noch einmal aus, am besten in kleineren Gruppen.'
+        : unreadable > 0
+          ? `Bei ${unreadable} davon konnte dein Handy die Datei nicht mehr lesen; die bitte noch einmal auswählen. Der Rest liegt meistens am Empfang.`
+          : 'Das liegt meistens am Empfang. Ein erneuter Versuch klappt fast immer.';
+
     renderErrorDetails();
   }
 
