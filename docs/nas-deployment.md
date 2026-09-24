@@ -243,16 +243,19 @@ curl -s http://127.0.0.1:8080/readyz
 ## 6. Von innen erreichbar machen
 
 Standardmäßig lauscht der Container nur auf `127.0.0.1` der NAS — von außen
-also gar nicht. Für den Zugriff aus dem Heimnetz per NAS-IP die Portzeile in
-`docker-compose.yml` ändern:
+also gar nicht. Für den Zugriff aus dem Heimnetz per NAS-IP in der `.env`:
 
-```yaml
-    ports:
-      - "8080:8080"      # statt "127.0.0.1:8080:8080"
+```bash
+PICPOOL_HOST_BIND=0.0.0.0
 ```
 
 Danach `up -d` erneut ausführen. PicPool ist dann unter
 `http://<nas-ip>:8080` erreichbar.
+
+> Die `docker-compose.yml` dafür **nicht** von Hand ändern. Sie ist
+> versioniert; eine Änderung an der Datei lässt jedes spätere `git pull` — und
+> damit die Update-Aufgabe — mit *„Your local changes would be overwritten"*
+> abbrechen.
 
 ## 7. Reverse Proxy und HTTPS
 
@@ -406,6 +409,10 @@ sudo docker logs picpool-app --tail 50
   nicht. Nochmal `id` prüfen und die Zahlen in die `.env` übernehmen.
 - **Sofortiger Neustart in Schleife** — meist ein nicht eingehängter
   Shared Folder.
+- **`NanoCPUs can not be set`** — der Synology-Kernel kennt den
+  CFS-Scheduler nicht, eine CPU-Obergrenze lässt sich dort nicht setzen.
+  Deshalb steht in der `docker-compose.yml` keine mehr. Taucht die Meldung
+  trotzdem auf, ist der Stand veraltet: `git pull`.
 
 ### Uploads scheitern auf einem Gerät
 

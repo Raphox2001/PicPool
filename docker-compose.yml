@@ -23,11 +23,15 @@ services:
     restart: unless-stopped
     command: ["node", "apps/server/dist/index.js"]
 
-    # Nur an localhost der NAS binden. Von aussen erreichbar ausschliesslich
-    # ueber den Reverse Proxy. Fuer den internen Zugriff per NAS-IP stattdessen
-    # "${PICPOOL_PORT:-8080}:8080" verwenden.
+    # Standardmaessig nur an localhost der NAS gebunden. Von aussen erreichbar
+    # ausschliesslich ueber den Reverse Proxy.
+    #
+    # Fuer den Zugriff per NAS-IP aus dem Heimnetz in der .env
+    # PICPOOL_HOST_BIND=0.0.0.0 setzen. Bewusst hier ueber eine Variable und
+    # nicht durch Bearbeiten dieser Zeile: Diese Datei ist versioniert, eine
+    # Aenderung von Hand laesst jedes spaetere "git pull" scheitern.
     ports:
-      - "127.0.0.1:${PICPOOL_PORT:-8080}:8080"
+      - "${PICPOOL_HOST_BIND:-127.0.0.1}:${PICPOOL_PORT:-8080}:8080"
 
     env_file: .env
     environment:
@@ -53,11 +57,13 @@ services:
       - ALL
     init: true
 
+    # Keine cpus-Grenze: Der Synology-Kernel hat den CFS-Scheduler nicht, Docker
+    # bricht den Start dann mit "NanoCPUs can not be set" ab. Die Speichergrenze
+    # wird dagegen durchgesetzt.
     deploy:
       resources:
         limits:
           memory: 1536M
-          cpus: "1.5"
 
     networks:
       - picpool
@@ -101,11 +107,11 @@ services:
       - ALL
     init: true
 
+    # Siehe oben: cpus laesst sich auf der NAS nicht setzen.
     deploy:
       resources:
         limits:
           memory: 2560M
-          cpus: "1.5"
 
     logging:
       driver: json-file
