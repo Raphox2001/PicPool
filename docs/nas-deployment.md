@@ -77,6 +77,11 @@ möchtest: Systemsteuerung → Benutzer & Gruppe → Erstellen, Berechtigung nur
 PicPool braucht 32 Byte Zufall. Der Schlüssel verschlüsselt die Share-Tokens
 und die 2FA-Geheimnisse.
 
+Du erzeugst ihn selbst, es gibt keinen vorgegebenen. Bei einer neuen
+Installation ist frei, was du einträgst — ab dem ersten Start ist es *der*
+Schlüssel dieser Installation und muss so bleiben. Richtest du PicPool auf
+vorhandenen Daten neu ein, gehört dort wieder der alte Wert hinein.
+
 **Mit SSH:**
 
 ```bash

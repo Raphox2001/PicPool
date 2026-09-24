@@ -24,11 +24,19 @@ x-picpool-env: &picpool-env
   #   Spaeter mit Domain:    https://bilder.deine-domain.de
   PICPOOL_PUBLIC_URL: "http://192.168.0.110:8080"
 
-  # ANPASSEN (2/4) - 32 Byte Zufall, base64. Erzeugen mit:
-  #   openssl rand -base64 32
-  # Verschluesselt die Share-Tokens und die 2FA-Geheimnisse. Geht er verloren,
-  # lassen sich vorhandene QR-Codes nicht mehr anzeigen und der zweite Faktor
-  # muss neu eingerichtet werden; die Bilder bleiben unberuehrt.
+  # ANPASSEN (2/4) - 32 Byte Zufall, base64. Den erzeugst du selbst:
+  #   Linux, Mac, Git-Bash:  openssl rand -base64 32
+  #   Windows-PowerShell:    $b = New-Object byte[] 32; $r =
+  #     [Security.Cryptography.RandomNumberGenerator]::Create(); $r.GetBytes($b);
+  #     $r.Dispose(); [Convert]::ToBase64String($b)
+  # Heraus kommt eine Zeile mit 44 Zeichen. Nimm nicht Get-Random - das ist
+  # kein kryptografisch sicherer Zufall.
+  #
+  # Bei einer NEUEN Installation ist der Wert frei: was hier steht, wird der
+  # Schluessel. Ab dem ersten Start muss er derselbe bleiben - er verschluesselt
+  # die Share-Tokens und die 2FA-Geheimnisse. Wird er getauscht, lassen sich
+  # vorhandene QR-Codes nicht mehr anzeigen und der zweite Faktor muss neu
+  # eingerichtet werden; die Bilder bleiben unberuehrt.
   # Getrennt von der Datenbanksicherung aufbewahren - liegen beide zusammen,
   # ist die Verschluesselung wirkungslos.
   PICPOOL_SECRET_KEY: "HIER_EINTRAGEN"

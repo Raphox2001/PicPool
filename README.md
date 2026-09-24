@@ -37,8 +37,13 @@ GitHub Container Registry.
 4. Starten
 
 Alles über die DSM-Oberfläche, SSH wird nicht gebraucht. Die vier Stellen sind
-die öffentliche Adresse, der Schlüssel (`openssl rand -base64 32`), dein
-Heimnetz und UID/GID deines Benutzers.
+die öffentliche Adresse, der Schlüssel, dein Heimnetz und UID/GID deines
+Benutzers.
+
+Den **Schlüssel erzeugst du selbst** — bei einer neuen Installation ist frei,
+was dort steht, ab dem ersten Start muss er dann gleich bleiben. Ohne SSH geht
+das am eigenen PC, der Weg für PowerShell steht in
+[Schritt 3 der Anleitung](docs/nas-deployment.md#3-schlüssel-erzeugen).
 
 Warum die Bilder in einen **eigenen** gemeinsamen Ordner gehören und nicht
 unter `docker/`: Ein gemeinsamer Ordner ist bei Synology die Einheit für Hyper
