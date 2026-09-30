@@ -26,24 +26,182 @@ still abbricht.
 
 Vollständige Anleitung: **[docs/nas-deployment.md](docs/nas-deployment.md)**
 
-Es genügt eine einzige Datei: **[docker-compose.yml](docker-compose.yml)**. Kein
-Quellcode auf der NAS, kein Git, kein Build — das Image kommt fertig aus der
-GitHub Container Registry.
+Es genügt **eine einzige Datei** — sie steht weiter unten zum Kopieren. Kein
+Quellcode auf der NAS, kein Git, kein Build: Das Image kommt fertig aus der
+GitHub Container Registry, und alles geht über die DSM-Oberfläche, SSH wird
+nicht gebraucht.
 
-1. Gemeinsamen Ordner für die Daten anlegen, z. B. `picpool`
-2. Container Manager → **Projekt** → **Erstellen**, die `docker-compose.yml`
-   einfügen
-3. Die vier mit `ANPASSEN` markierten Stellen ausfüllen
-4. Starten
+Der Weg in vier Schritten:
 
-Alles über die DSM-Oberfläche, SSH wird nicht gebraucht. Die vier Stellen sind
-die öffentliche Adresse, der Schlüssel, dein Heimnetz und UID/GID deines
-Benutzers.
+1. Gemeinsamen Ordner für die Daten anlegen, z. B. `picpool` — **einen eigenen**,
+   nicht unter `docker/` (warum, steht unten)
+2. Schlüssel erzeugen und UID/GID ablesen
+3. Container Manager → **Projekt** → **Erstellen**, die Datei von unten
+   einfügen und die vier mit `ANPASSEN` markierten Stellen ausfüllen
+4. Starten, dann `http://<nas-ip>:8080/admin` aufrufen
 
-Den **Schlüssel erzeugst du selbst** — bei einer neuen Installation ist frei,
-was dort steht, ab dem ersten Start muss er dann gleich bleiben. Ohne SSH geht
-das am eigenen PC, der Weg für PowerShell steht in
-[Schritt 3 der Anleitung](docs/nas-deployment.md#3-schlüssel-erzeugen).
+### Den Schlüssel erzeugen
+
+32 Byte Zufall, base64 — das sind 44 Zeichen. **Windows-PowerShell** (auf dem
+eigenen PC, kein SSH nötig):
+
+```powershell
+$b = New-Object byte[] 32
+$r = [Security.Cryptography.RandomNumberGenerator]::Create()
+$r.GetBytes($b); $r.Dispose(); [Convert]::ToBase64String($b)
+```
+
+Linux, Mac oder Git-Bash:
+
+```bash
+openssl rand -base64 32
+```
+
+Nimm nicht `Get-Random`, das ist kein kryptografisch sicherer Zufall. Bei einer
+**neuen** Installation ist frei, was dort steht; ab dem ersten Start muss der
+Wert derselbe bleiben — er verschlüsselt die Share-Tokens und die
+2FA-Geheimnisse. Bewahre ihn getrennt von der Datenbanksicherung auf.
+
+### UID und GID ablesen
+
+Nur damit die hochgeladenen Bilder deinem DSM-Benutzer gehören und nicht root —
+sonst lassen sie sich in der File Station nicht normal öffnen und verschieben.
+Zu finden in DSM unter **Systemsteuerung → Benutzer → dein Benutzer**, oder per
+SSH mit `id`. Typisch ist `1026` als UID und `100` (`users`) als GID.
+
+### Die Compose-Datei zum Kopieren
+
+Container Manager → **Projekt** → **Erstellen**, als Pfad den Ordner wählen und
+den folgenden Text einfügen. Vier Stellen sind mit `ANPASSEN` markiert:
+
+```yaml
+# Beide Container brauchen dieselben Werte, insbesondere den Schluessel:
+# haetten App und Worker verschiedene, liessen sich verschluesselte Felder
+# nicht mehr lesen.
+x-picpool-env: &picpool-env
+  # ANPASSEN 1/4 - Adresse, unter der PicPool erreichbar ist. Sie steht in
+  # jedem Upload-Link und QR-Code. OHNE Schraegstrich am Ende.
+  PICPOOL_PUBLIC_URL: "http://192.168.0.110:8080"
+
+  # ANPASSEN 2/4 - der Schluessel aus Schritt 1.
+  PICPOOL_SECRET_KEY: "HIER_EINTRAGEN"
+
+  # ANPASSEN 3/4 - dein Heimnetz. Nur diese Geraete bekommen, sofern pro Album
+  # erlaubt, die Originalaufloesung. Leer lassen schaltet die Ausnahme ab.
+  PICPOOL_LAN_CIDRS: "192.168.0.0/24"
+
+  # Netz des Reverse Proxy, dem X-Forwarded-For geglaubt wird. Eng fassen -
+  # zu weit gefasst, koennte ein Gast sich eine LAN-Adresse andichten.
+  PICPOOL_TRUST_PROXY: "172.16.0.0/12"
+
+  PICPOOL_DATA_DIR: /data
+  # Das Wurzeldateisystem ist schreibgeschuetzt; ohne beschreibbares HOME
+  # scheitert Node beim Anlegen seiner Caches.
+  HOME: /tmp
+
+services:
+  app:
+    image: ghcr.io/raphox2001/picpool:latest
+    container_name: picpool-app
+    restart: unless-stopped
+    command: ["node", "apps/server/dist/index.js"]
+
+    # Zugang aus dem Heimnetz. Steht ein Reverse Proxy davor, kann hier
+    # "127.0.0.1:8080:8080" stehen - dann geht von aussen nur der Proxy.
+    ports:
+      - "8080:8080"
+
+    environment: *picpool-env
+
+    # Der EINZIGE Mount. Niemals /volume1 als Ganzes, niemals der Docker-Socket.
+    # ANPASSEN 4/4 - links dein gemeinsamer Ordner.
+    volumes:
+      - /volume1/picpool:/data
+
+    # ANPASSEN 4/4 - UID:GID aus Schritt 2.
+    user: "1026:100"
+
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+
+    # Keine cpus-Grenze: Der Synology-Kernel hat den CFS-Scheduler nicht,
+    # Docker bricht den Start sonst mit "NanoCPUs can not be set" ab.
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+
+    networks:
+      - picpool
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  worker:
+    image: ghcr.io/raphox2001/picpool:latest
+    container_name: picpool-worker
+    restart: unless-stopped
+    depends_on:
+      - app
+    command: ["node", "apps/server/dist/worker.js"]
+
+    # KEIN Netzwerk: Hier wird fremdes Bild- und Videomaterial geparst, also
+    # genau dort, wo Decoder-Schwachstellen sitzen. Die Verstaendigung mit der
+    # App laeuft ueber die Jobs-Tabelle im gemeinsamen Volume.
+    network_mode: none
+
+    environment: *picpool-env
+
+    # Muss derselbe Ordner sein wie oben.
+    volumes:
+      - /volume1/picpool:/data
+
+    # Muss dieselbe UID:GID sein wie oben.
+    user: "1026:100"
+
+    # Der Health-Check im Image fragt Port 8080 ab. Den bedient nur die App;
+    # ohne diese Zeile stuende der Worker dauerhaft auf "unhealthy".
+    healthcheck:
+      disable: true
+
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+
+    deploy:
+      resources:
+        limits:
+          memory: 2560M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  picpool:
+    driver: bridge
+```
+
+Das ist dieselbe Datei wie [docker-compose.yml](docker-compose.yml) im Repo, nur
+mit kürzeren Kommentaren — wer lieber die ausführliche Fassung einfügt, nimmt
+die. Beim Speichern legt der Container Manager beide Container an und startet
+sie; danach steht im Protokoll von `picpool-app` die Zeile `PicPool bereit`.
 
 Warum die Bilder in einen **eigenen** gemeinsamen Ordner gehören und nicht
 unter `docker/`: Ein gemeinsamer Ordner ist bei Synology die Einheit für Hyper
