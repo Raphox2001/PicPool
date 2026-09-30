@@ -420,13 +420,29 @@ den die NAS neben den anderen Containern knapp hat.
 
 ## Was danach noch fehlt
 
-Vier Prüfungen aus [docs/geraetetest.md](geraetetest.md) sind noch offen und
-lassen sich jetzt live machen:
+Drei der vier Prüfungen aus [docs/geraetetest.md](geraetetest.md) sind am
+30.09.2026 über die öffentliche Adresse nachgeholt und bestanden: Link aus
+WhatsApp heraus geöffnet, großes Video über Mobilfunk statt WLAN, Flugmodus
+mitten im Upload.
 
-- iPhone mit echter HEIC-Datei aus der Kamera
-- Link aus WhatsApp heraus geöffnet
-- großes Video über Mobilfunk statt WLAN
-- Flugmodus mitten im Upload
+Offen bleibt der **iPhone-Fall**, weil kein Gerät zur Verfügung steht. Ohne
+iPhone lässt sich immerhin das Wichtigste ausschließen: dass im Image der
+HEVC-Decoder fehlt und damit *jeder* iPhone-Upload scheitert. Das sagt der
+Bereitschaftsbericht — kein SSH nötig, die Adresse genügt:
+
+```
+http://<nas-ip>:8080/readyz
+```
+
+Erwartet ist `"hevcDecoder":true` und eine leere `warnings`-Liste. Steht dort
+`false`, ist der Fall schon ohne Test entschieden; dann hilft der Abschnitt
+[`ffmpeg hat keinen HEVC-Decoder`](#ffmpeg-hat-keinen-hevc-decoder) weiter.
+Geprüft am 30.09.2026: `hevcDecoder: true`, ffmpeg 5.1.9.
+
+Was nur ein echtes Gerät zeigt, ist iOS Safari selbst — Dateiauswahl, Live
+Photos und die Kopie beim Auswählen. Beim ersten Einsatz deshalb einen
+iPhone-Gast zuerst hochladen lassen, zuschauen, und danach
+`docker exec picpool-app node apps/server/dist/cli.js fehler` ansehen.
 
 Erst über HTTPS lässt sich außerdem die Wake-Lock-Funktion prüfen, die den
 Bildschirm während des Uploads wachhält — sie ist von Browsern nur in

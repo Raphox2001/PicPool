@@ -468,5 +468,20 @@ Da drei Änderungen zusammen eingingen, lässt sich der Erfolg nicht einer
 einzelnen zuschreiben. Die Zeitgrenzen-Fehlkonfiguration war aber nachweisbar
 vorhanden und erklärt das Fehlerbild vollständig.
 
-**Noch offen:** iPhone (HEIC aus echter Kamera), WhatsApp-Browser, großes Video
-über Mobilfunk, Flugmodus mitten im Upload. Anleitung: [docs/geraetetest.md](docs/geraetetest.md)
+## Gerätetest: die Abbruch-Fälle (30.09.2026)
+
+Nachgeholt über die öffentliche Adresse, alle drei bestanden:
+
+| Prüfung | Ergebnis |
+|---|---|
+| Großes Video über Mobilfunk statt WLAN | läuft durch |
+| Link aus WhatsApp heraus geöffnet | funktioniert |
+| Flugmodus mitten im Upload | Upload läuft danach selbstständig weiter |
+
+**Ungeprüft bleibt das iPhone**, weil hier keins zur Verfügung steht. Der
+HEIC-Pfad ist serverseitig nachgewiesen (Tabelle weiter oben), und dass der
+HEVC-Decoder auf der NAS vorhanden ist, sagt `/readyz` (dort am 30.09.2026
+`hevcDecoder: true`, ffmpeg 5.1.9). Offen ist also iOS Safari selbst: Dateiauswahl,
+Live Photos und die Kopie beim Auswählen. Das braucht ein geliehenes Gerät oder
+den ersten echten Einsatz — dann zuerst einen iPhone-Gast bitten und danach
+`cli.js fehler` ansehen. Anleitung: [docs/geraetetest.md](docs/geraetetest.md)

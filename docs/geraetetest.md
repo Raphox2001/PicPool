@@ -50,6 +50,14 @@ New-NetFirewallRule -DisplayName "PicPool Dev" -Direction Inbound -Protocol TCP 
 
 ### iPhone — der wichtigste Fall
 
+> **Stand 30.09.2026: ungeprüft.** Es steht kein iPhone zur Verfügung. Der
+> HEIC-Pfad ist serverseitig nachgewiesen, und dass der HEVC-Decoder im Image
+> vorhanden ist, sagt `/readyz` auf der NAS (`hevcDecoder: true`) — damit ist der
+> Totalausfall ausgeschlossen. Was bleibt, ist iOS Safari selbst:
+> Dateiauswahl, Live Photos und die Kopie beim Auswählen. Das braucht ein
+> geliehenes Gerät oder den ersten echten Einsatz; dann zuerst einen
+> iPhone-Gast hochladen lassen und danach `cli.js fehler` ansehen.
+
 Vorher in den iPhone-Einstellungen sicherstellen, dass auch wirklich HEIC entsteht:
 
 - **Einstellungen → Kamera → Formate → „Hohe Effizienz"** (nicht „Maximale Kompatibilität")
@@ -84,12 +92,18 @@ HEIC-Pfad gar nicht getestet, und der kritischste Fall bliebe ungeprüft.
 | 12 | Mitten im Upload **Zurück-Taste** drücken | Warnung „Möchten Sie die Seite verlassen?" |
 | 13 | Dieselben Fotos ein zweites Mal hochladen | Haken mit „war schon da", keine Dubletten |
 
+**Stand 30.09.2026:** 8 und 9 auf dem Pixel 7 über die öffentliche Adresse
+bestanden — das große Video läuft über Mobilfunk durch, und nach dem Flugmodus
+läuft der Upload selbstständig weiter.
+
 ### WhatsApp-Browser
 
 | # | Test | Erwartung |
 |---|---|---|
 | 14 | Link sich selbst per WhatsApp schicken, dort antippen | gelber Hinweis „Öffne diese Seite lieber in Safari oder Chrome" |
 | 15 | Trotzdem im WhatsApp-Browser hochladen | funktioniert, oder scheitert mit verständlicher Meldung |
+
+**Stand 30.09.2026:** bestanden — der Link aus WhatsApp heraus funktioniert.
 
 ### Der Boomer-Test
 
