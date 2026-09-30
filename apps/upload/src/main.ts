@@ -339,6 +339,18 @@ function setupPicker(): void {
 }
 
 function addFiles(files: File[]): void {
+  /**
+   * Das Lesen beginnt VOR allem anderen.
+   *
+   * Gemessen am 30.09.2026 auf einem Android-Handy: Zwei Sekunden nach dem
+   * Auswaehlen waren sechzehn von zwanzig Verweisen tot - bei vier Dateien war
+   * die Kopie noch rechtzeitig fertig geworden, der Rest scheiterte in
+   * derselben Sekunde. Alles, was vor dem ersten gelesenen Byte passiert -
+   * Zeilen anlegen, Vorschaubilder erzeugen, Fortschrittsbalken einblenden -
+   * geht von diesem Fenster ab. Deshalb steht hier nichts davor.
+   */
+  const copies = startCopies(files);
+
   $('done').classList.add('hidden');
   $('failed').classList.add('hidden');
   $('list').classList.remove('hidden');
@@ -355,8 +367,7 @@ function addFiles(files: File[]): void {
   void sendSession(plan());
   startHeartbeat();
 
-  // Zuerst sichern, dann hochladen - siehe secureFiles.
-  void secureFiles(fresh);
+  void awaitCopies(fresh, copies);
   render();
 }
 
@@ -374,39 +385,80 @@ let snapshotUsed = 0;
  * Zieht sofort beim Auswaehlen eine eigene Kopie jeder Datei.
  *
  * Android reicht dem Browser keine Datei, sondern einen Verweis darauf - und
- * der ist kurzlebig. Gemessen am 24.09.2026: Nach acht bis fuenfundzwanzig
- * Sekunden war nichts mehr zu lesen. Bei zwanzig Dateien in der Schlange
- * kamen deshalb nur die ersten beiden an, alle weiteren scheiterten mit einem
- * Fehler, der von aussen wie ein Funkloch aussah - null Bytes gesendet, keine
- * HTTP-Antwort.
+ * der ist kurzlebig. Gemessen am 24.09.2026: nach acht bis fuenfundzwanzig
+ * Sekunden nichts mehr zu lesen. Gemessen am 30.09.2026 auf einem anderen
+ * Geraet: nach **zwei** Sekunden. Die Kopie ist also richtig, sie muss nur
+ * schnell genug sein.
  *
- * Die Kopie kostet Speicher, aber sie gehoert uns. Sie entsteht in der
- * Reihenfolge der Auswahl, und jeder fertig gesicherte Eintrag darf sofort
- * losgeschickt werden - das Lesen von der Platte ist um Groessenordnungen
- * schneller als der Upload, das Sichern laeuft dem Hochladen also davon.
+ * Zwei Dinge machen sie schnell:
+ *
+ *  - **Alle Dateien gleichzeitig.** Nacheinander zu lesen kostete beim
+ *    Fehlschlag am 30.09.2026 das Fenster: Vier Kopien waren fertig, dann war
+ *    Schluss. Von der Platte zu lesen ist um Groessenordnungen schneller als
+ *    der Upload; parallel sind auch zwanzig Dateien in Bruchteilen einer
+ *    Sekunde gelesen.
+ *  - **Kein Upload waehrenddessen.** Vorher startete jede fertige Kopie sofort
+ *    ihren Upload und kaempfte damit um dieselbe CPU und dasselbe Funkmodul wie
+ *    die noch laufenden Kopien. Genau das hat das Fenster verbraucht. Jetzt
+ *    wird erst gelesen, dann gesendet.
+ *
+ * Die Kopie kostet Speicher, aber sie gehoert uns - und das Budget begrenzt,
+ * wie viel davon gleichzeitig im Speicher liegt.
  */
-async function secureFiles(fresh: Item[]): Promise<void> {
+function startCopies(files: File[]): Array<Promise<Blob | null>> {
+  return files.map((file) => {
+    // Ueber dem Budget wird nicht kopiert, sondern wie zuvor direkt aus dem
+    // Verweis gelesen. Lieber ein Upload, der es versuchen muss, als eine
+    // Seite, die dem Handy den Speicher wegnimmt. Der Zaehler steigt schon
+    // hier, nicht erst wenn die Kopie fertig ist - sonst begrenzt das Budget
+    // bei gleichzeitigem Lesen gar nichts.
+    if (snapshotUsed + file.size > SNAPSHOT_BUDGET) return Promise.resolve(null);
+    snapshotUsed += file.size;
+
+    return file
+      .arrayBuffer()
+      .then((buf) => new Blob([buf], { type: file.type }))
+      .catch(() => {
+        // Nicht lesbar: Der Verweis war tot, bevor wir ihn benutzen konnten.
+        snapshotUsed -= file.size;
+        throw new Error('nicht lesbar');
+      });
+  });
+}
+
+/**
+ * Wartet die Kopien ab und startet danach die Uploads.
+ *
+ * Erst wenn alle durch sind, laeuft pump() - siehe startCopies. Fuer den Gast
+ * heisst das ein kurzes "wird gesichert …" vor dem ersten Fortschrittsbalken;
+ * dafuer ueberlebt die ganze Auswahl.
+ */
+async function awaitCopies(fresh: Item[], copies: Array<Promise<Blob | null>>): Promise<void> {
   for (const item of fresh) {
     if (item.state === 'wartet') item.note.textContent = 'wird gesichert …';
-
-    try {
-      if (snapshotUsed + item.file.size <= SNAPSHOT_BUDGET) {
-        item.data = new Blob([await item.file.arrayBuffer()], { type: item.file.type });
-        snapshotUsed += item.file.size;
-        adoptThumb(item);
-      }
-      item.prepared = true;
-      if (item.state === 'wartet') item.note.textContent = 'wartet';
-    } catch {
-      // Schon hier nicht lesbar: Der Verweis war tot, bevor wir ihn benutzen
-      // konnten. Ein Upload-Versuch waere reine Zeitverschwendung.
-      markUnreadable(item);
-    }
-
-    pump();
   }
 
+  const results = await Promise.allSettled(copies);
+
+  results.forEach((result, i) => {
+    const item = fresh[i];
+    if (!item) return;
+
+    if (result.status === 'rejected') {
+      markUnreadable(item);
+      return;
+    }
+
+    if (result.value) {
+      item.data = result.value;
+      adoptThumb(item);
+    }
+    item.prepared = true;
+    if (item.state === 'wartet') item.note.textContent = 'wartet';
+  });
+
   render();
+  pump();
 }
 
 /**
@@ -433,7 +485,10 @@ function markUnreadable(item: Item): void {
   item.mark.textContent = '✕';
   item.note.textContent = UNREADABLE_NOTE;
   item.lastErrorDetail = 'Datei liess sich schon beim Auswaehlen nicht lesen';
-  reportError(item, new Error('Datei nicht lesbar'), null, true);
+  // "sichern" als Phase, damit im Fehlerbericht sofort steht, dass es gar nicht
+  // bis zu einem Upload kam. Am 30.09.2026 war das nur an "Versuch 0" zu
+  // erkennen - eine Angabe, auf die man erst kommen muss.
+  reportError(item, new Error('Datei nicht lesbar'), null, true, 'sichern');
 }
 
 function createRow(file: File): Item {
@@ -511,7 +566,7 @@ function startUpload(item: Item): void {
 
   const chunkSize = CHUNK_SIZES[item.chunkLevel] ?? CHUNK_SIZES[CHUNK_SIZES.length - 1]!;
 
-  // Aus der Kopie, wenn es eine gibt - siehe secureFiles.
+  // Aus der Kopie, wenn es eine gibt - siehe startCopies.
   const upload = new tus.Upload(item.data ?? item.file, {
     endpoint: '/api/upload',
     chunkSize,
@@ -676,7 +731,13 @@ function isTransportError(err: Error): boolean {
  * Handy nicht nachvollziehbar - genau die Blindheit, die den Photo Request
  * so mühsam macht.
  */
-function reportError(item: Item, err: Error, upload: tus.Upload | null, unreadable = false): void {
+function reportError(
+  item: Item,
+  err: Error,
+  upload: tus.Upload | null,
+  unreadable = false,
+  phase?: string,
+): void {
   const anyErr = err as Error & {
     originalResponse?: { getStatus?: () => number; getBody?: () => string };
     originalRequest?: { getMethod?: () => string; getURL?: () => string };
@@ -708,7 +769,7 @@ function reportError(item: Item, err: Error, upload: tus.Upload | null, unreadab
     filename: item.file.name,
     fileSize: item.file.size,
     fileType: item.file.type || '(leer)',
-    phase: anyErr.originalRequest?.getMethod?.() ?? 'unbekannt',
+    phase: phase ?? anyErr.originalRequest?.getMethod?.() ?? 'unbekannt',
     message,
     httpStatus,
     responseBody,

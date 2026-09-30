@@ -347,10 +347,24 @@ in die Irre. Es scheitert im WLAN genauso wie über Mobilfunk, weil es mit dem
 Netz nichts zu tun hat.
 
 Deshalb zieht die Seite beim Auswählen sofort eine eigene Kopie und lädt aus
-der hoch (`secureFiles` in `apps/upload/src/main.ts`). Das kostet Speicher —
+der hoch (`startCopies` in `apps/upload/src/main.ts`). Das kostet Speicher —
 daher die Obergrenze von 512 MB. Lässt sich eine Datei schon dabei nicht
 lesen, sagt die Seite dem Gast, dass er sie neu auswählen soll, statt ihn auf
 die Verbindung zu verweisen.
+
+**Nachtrag vom 30.09.2026:** Auf einem anderen Android-Gerät war das Fenster
+nicht 8 Sekunden lang, sondern **2** — von zwanzig Dateien kamen vier an, die
+übrigen sechzehn scheiterten in derselben Sekunde mit `dateiLesbar=nein` und
+`Versuch 0`, also noch vor dem ersten Upload-Versuch. Die Kopie war richtig,
+nur zu langsam: Sie lief Datei für Datei und startete nach jeder fertigen
+Kopie sofort den Upload, der dann mit den noch laufenden Kopien um CPU und
+Funkmodul konkurrierte.
+
+Seit 0.4.2 liest die Seite deshalb **alle Dateien gleichzeitig und bevor sie
+irgendetwas anderes tut** — vor den Zeilen in der Liste, vor den
+Vorschaubildern, vor dem Fortschrittsbalken. Uploads starten erst, wenn alle
+Kopien stehen. Von der Platte zu lesen ist um Größenordnungen schneller als
+das Hochladen; der Gast sieht dafür ein kurzes „wird gesichert …".
 
 ### Der Worker hat kein Netzwerk
 
