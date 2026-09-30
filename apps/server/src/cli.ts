@@ -8,6 +8,7 @@ import { createShareLink, listShareLinks, revealToken, buildUrl, revokeShareLink
 import { listUploadersWithCounts } from './services/uploaders.js';
 import { listSessions } from './services/uploadSessions.js';
 import { queueStats } from './jobs/queue.js';
+import { flag, positionals } from './lib/args.js';
 
 /**
  * Verwaltung von der Kommandozeile.
@@ -54,11 +55,6 @@ function findAlbum(idOrSlug: string) {
   return (bySlug as ReturnType<typeof getAlbumById>) ?? null;
 }
 
-function flag(args: string[], name: string): string | undefined {
-  const i = args.indexOf(`--${name}`);
-  return i >= 0 ? args[i + 1] : undefined;
-}
-
 /**
  * Zeichnet den Link als QR-Code ins Terminal.
  *
@@ -96,6 +92,8 @@ function formatBytes(n: number): string {
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  // Freie Argumente getrennt von den Schaltern - siehe lib/args.ts.
+  const pos = positionals(args);
 
   if (!command || command === 'help' || command === '--help') {
     usage();
@@ -108,7 +106,7 @@ async function main(): Promise<void> {
 
   switch (command) {
     case 'album:create': {
-      const name = args[0];
+      const name = pos[0];
       if (!name) throw new Error('Name fehlt.');
 
       const maxFiles = flag(args, 'max-dateien');
@@ -150,7 +148,7 @@ async function main(): Promise<void> {
     }
 
     case 'album:show': {
-      const album = findAlbum(args[0] ?? '');
+      const album = findAlbum(pos[0] ?? '');
       if (!album) throw new Error('Album nicht gefunden.');
 
       const usage = getAlbumUsage(album.id);
@@ -178,10 +176,10 @@ async function main(): Promise<void> {
     }
 
     case 'link:create': {
-      const album = findAlbum(args[0] ?? '');
+      const album = findAlbum(pos[0] ?? '');
       if (!album) throw new Error('Album nicht gefunden.');
 
-      const kind = args[1];
+      const kind = pos[1];
       if (kind !== 'upload' && kind !== 'gallery') {
         throw new Error('Art muss upload oder gallery sein.');
       }
@@ -192,7 +190,7 @@ async function main(): Promise<void> {
     }
 
     case 'link:list': {
-      const album = findAlbum(args[0] ?? '');
+      const album = findAlbum(pos[0] ?? '');
       if (!album) throw new Error('Album nicht gefunden.');
 
       for (const l of listShareLinks(album.id)) {
@@ -203,10 +201,10 @@ async function main(): Promise<void> {
     }
 
     case 'qr': {
-      const album = findAlbum(args[0] ?? '');
+      const album = findAlbum(pos[0] ?? '');
       if (!album) throw new Error('Album nicht gefunden.');
 
-      const kind = args[1] === 'gallery' ? 'gallery' : 'upload';
+      const kind = pos[1] === 'gallery' ? 'gallery' : 'upload';
       const links = listShareLinks(album.id).filter((l) => l.kind === kind && !l.revoked_at);
       const link = links[links.length - 1];
       if (!link) throw new Error(`Kein aktiver ${kind}-Link fuer dieses Album.`);
@@ -220,7 +218,7 @@ async function main(): Promise<void> {
     }
 
     case 'link:revoke': {
-      const id = args[0];
+      const id = pos[0];
       if (!id) throw new Error('Link-ID fehlt.');
       revokeShareLink(id);
       console.log('Link zurueckgezogen.');
@@ -267,7 +265,7 @@ async function main(): Promise<void> {
     }
 
     case 'sitzungen': {
-      const album = findAlbum(args[0] ?? '');
+      const album = findAlbum(pos[0] ?? '');
       if (!album) throw new Error('Album nicht gefunden. Erst "album:list" aufrufen.');
 
       const limit = Number(flag(args, 'anzahl') ?? 20);
@@ -307,7 +305,7 @@ async function main(): Promise<void> {
 
     case 'admin:create':
     case 'admin:password': {
-      const name = args[0];
+      const name = pos[0];
       if (!name) throw new Error('Benutzername fehlt.');
 
       const auth = await import('./services/auth.js');
@@ -384,7 +382,7 @@ async function main(): Promise<void> {
       const { backupDatabase, pruneBackups } = await import('./services/maintenance.js');
       const keep = Number(flag(args, 'behalten') ?? 7);
 
-      const res = await backupDatabase(args.find((a) => !a.startsWith('--')));
+      const res = await backupDatabase(pos[0]);
       console.log(`\nSicherung geschrieben:`);
       console.log(`  ${res.file}`);
       console.log(`  ${formatBytes(res.bytes)} in ${res.durationMs} ms\n`);

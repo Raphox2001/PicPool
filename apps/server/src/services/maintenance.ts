@@ -44,7 +44,20 @@ export async function backupDatabase(targetPath?: string): Promise<BackupResult>
     ? path.resolve(targetPath)
     : path.join(dir, `picpool-${stamp}.db`);
 
-  await getDb().backup(file);
+  try {
+    await getDb().backup(file);
+  } catch (err) {
+    // SQLite meldet hier nur "unable to open database file" - eine Meldung, die
+    // nach einem Problem mit der Datenbank aussieht, obwohl es um das ZIEL
+    // geht. Genau das kostete am 30.09.2026 eine Stunde Suche an der falschen
+    // Stelle. Deshalb steht der Pfad jetzt in der Meldung.
+    throw new Error(
+      `Sicherung konnte nicht nach "${file}" geschrieben werden: ` +
+        `${err instanceof Error ? err.message : String(err)}. ` +
+        'Existiert das Verzeichnis, und ist es fuer diesen Benutzer beschreibbar? ' +
+        'Im Container ist nur das Datenverzeichnis beschreibbar, nicht das Wurzeldateisystem.',
+    );
+  }
 
   const stat = await fsp.stat(file);
   return { file, bytes: stat.size, durationMs: Date.now() - started };
