@@ -238,11 +238,13 @@ deiner Kontrolle.
 ### Sicherungen
 
 ```bash
-docker exec picpool-app node apps/server/dist/cli.js backup
+sudo /usr/local/bin/docker exec picpool-app node apps/server/dist/cli.js backup
 ```
 
 Schreibt eine in sich stimmige Kopie nach `backups/` und behält die letzten
-sieben. Warum die Datei nicht einfach kopiert werden darf, steht weiter unten
+sieben. Der volle Pfad, weil sudo und der DSM-Aufgabenplaner `/usr/local/bin`
+nicht im PATH haben — ein blosses `docker` scheitert dort mit
+`command not found`. Warum die Datei nicht einfach kopiert werden darf, steht weiter unten
 unter „Wichtig für Sicherungen".
 
 ## Aufbau

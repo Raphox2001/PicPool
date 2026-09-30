@@ -23,6 +23,13 @@
 
 set -eu
 
+# Der Aufgabenplaner startet Skripte mit einem knappen PATH, in dem
+# /usr/local/bin fehlt - und genau dort liegt Docker auf DSM. Ohne diese Zeile
+# scheitert alles Weitere mit "docker: command not found", waehrend dieselben
+# Befehle in einer SSH-Sitzung anstandslos laufen.
+PATH="/usr/local/bin:$PATH"
+export PATH
+
 # --- Anpassen, falls deine Pfade abweichen ---------------------------------
 DATA_DIR="/volume1/picpool"
 

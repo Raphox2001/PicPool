@@ -313,6 +313,9 @@ Als Befehl das hier einfügen — die beiden Pfade oben anpassen, falls deine
 abweichen:
 
 ```sh
+# Der Aufgabenplaner kennt /usr/local/bin nicht - dort liegt Docker auf DSM.
+# Ohne diese Zeile scheitert alles Weitere mit "docker: command not found".
+PATH=/usr/local/bin:$PATH
 DATA=/volume1/picpool
 PROJ=/volume1/docker/picpool
 [ -f "$DATA/update-requested" ] || exit 0
@@ -346,9 +349,14 @@ bekommt einen unvollständigen Stand, und SQLite meldet später
 
 Richtig ist der CLI-Befehl — als tägliche DSM-Aufgabe (Benutzer: **root**):
 
-```bash
-docker exec picpool-app node apps/server/dist/cli.js backup --behalten 14
+```sh
+/usr/local/bin/docker exec picpool-app node apps/server/dist/cli.js backup --behalten 14
 ```
+
+Der **volle Pfad ist hier Pflicht**: Der Aufgabenplaner startet Befehle mit
+einem knappen PATH, in dem `/usr/local/bin` fehlt. Ein blosses `docker exec …`
+laeuft in einer SSH-Sitzung, scheitert als Aufgabe aber mit
+`docker: command not found` - und zwar still, wenn niemand ins Protokoll sieht.
 
 Das schreibt eine in sich stimmige Kopie nach `/volume1/picpool/backups/`.
 **Hyper Backup** kann dann einfach den ganzen Ordner `/volume1/picpool`
