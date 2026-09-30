@@ -307,7 +307,20 @@ Benutzerdefiniertes Skript:
 |---|---|
 | Aufgabe | PicPool Update |
 | Benutzer | **root** |
-| Zeitplan | Täglich, alle 5 Minuten wiederholen |
+| Zeitplan | Täglich |
+
+**Und jetzt der Teil, den man leicht übersieht:** Im Reiter *Zeitplan* unter
+**Zeit** muss die Wiederholung stehen, sonst läuft die Aufgabe nur einmal am Tag.
+
+| Feld | Wert |
+|---|---|
+| Erste Ausführungszeit | 00:00 |
+| **Wiederholungsintervall** | **alle 5 Minuten** |
+| Letzte Ausführungszeit | 23:55 |
+
+Fehlt das Intervall, bleibt der Knopf im Panel scheinbar ohne Wirkung: Die
+Anforderung liegt geschrieben da, wird aber erst am nächsten Tag abgeholt.
+Prüf nach dem Speichern auch, dass die Aufgabe in der Liste ein **Häkchen** hat.
 
 Als Befehl das hier einfügen — die beiden Pfade oben anpassen, falls deine
 abweichen:
@@ -319,17 +332,33 @@ PATH=/usr/local/bin:$PATH
 DATA=/volume1/picpool
 PROJ=/volume1/docker/picpool
 [ -f "$DATA/update-requested" ] || exit 0
-rm -f "$DATA/update-requested"
-cd "$PROJ" || exit 1
+
+# Die Markierung wird zur Seite gelegt, nicht geloescht: Bleibt
+# update-running liegen, hat ein Lauf angefangen und nicht zu Ende gekommen -
+# das ist hinterher die einzige Spur, wenn im Protokoll nichts steht.
+mv "$DATA/update-requested" "$DATA/update-running"
+echo "=== $(date '+%F %T') Aktualisierung ===" >> "$DATA/update.log"
+
+cd "$PROJ" || { echo "FEHLER: $PROJ nicht gefunden" >> "$DATA/update.log"; exit 1; }
 docker exec picpool-app node apps/server/dist/cli.js backup >> "$DATA/update.log" 2>&1
-docker compose pull >> "$DATA/update.log" 2>&1 || exit 1
-docker compose up -d >> "$DATA/update.log" 2>&1
+docker compose pull >> "$DATA/update.log" 2>&1 \
+  || { echo "FEHLER: Abruf fehlgeschlagen" >> "$DATA/update.log"; exit 1; }
+docker compose up -d >> "$DATA/update.log" 2>&1 \
+  || { echo "FEHLER: Neustart fehlgeschlagen" >> "$DATA/update.log"; exit 1; }
 docker image prune -f >> "$DATA/update.log" 2>&1
+
+rm -f "$DATA/update-running"
+echo "fertig" >> "$DATA/update.log"
 ```
 
 Die Aufgabe tut nichts, solange keine Markierung vorliegt — sie kann also
 beliebig oft laufen. Wird eine Aktualisierung angefordert, sichert sie zuerst
 die Datenbank, holt dann das neue Image und startet die Container durch.
+
+Ein gescheiterter Lauf wird **nicht** wiederholt. Das ist Absicht: Sonst würde
+sich die NAS alle fünf Minuten an derselben Sache abarbeiten. Die Spuren stehen
+in `/volume1/picpool/update.log`, und `update-running` bleibt als Hinweis
+liegen. Ein erneuter Klick im Panel startet einen neuen Versuch.
 
 Protokoll: `/volume1/picpool/update.log`
 
@@ -375,7 +404,7 @@ SNMP → SSH-Dienst aktivieren) oder eine Aufgabe im Aufgabenplaner als root.
 Dann scheitern alle iPhone-Fotos im HEIC-Format. Prüfen mit:
 
 ```bash
-sudo docker exec picpool-app ffmpeg -hide_banner -decoders | grep hevc
+sudo /usr/local/bin/docker exec picpool-app ffmpeg -hide_banner -decoders | grep hevc
 ```
 
 Kommt nichts zurück, ist das ein Fehler im veröffentlichten Image — bitte im
@@ -390,7 +419,7 @@ die Meldung auf, ist der Stand veraltet.
 ### Uploads scheitern auf einem Gerät
 
 ```bash
-sudo docker exec picpool-app node apps/server/dist/cli.js fehler
+sudo /usr/local/bin/docker exec picpool-app node apps/server/dist/cli.js fehler
 ```
 
 Zeigt die von den Geräten gemeldeten Fehler mit Dateiname, übertragenen Bytes,
@@ -401,7 +430,7 @@ Wenn gar kein Fehler gemeldet wurde — der Gast sagt "bei mir ging es nicht",
 im Log steht aber nichts — hilft das Sitzungsprotokoll:
 
 ```bash
-sudo docker exec picpool-app node apps/server/dist/cli.js sitzungen <album>
+sudo /usr/local/bin/docker exec picpool-app node apps/server/dist/cli.js sitzungen sommerfest
 ```
 
 Eine Zeile je Besuch auf der Upload-Seite, mit dem Gerät und der Bilanz
@@ -410,10 +439,37 @@ gemeldet, obwohl noch Dateien offen waren — typischerweise weggewischter Tab,
 leerer Akku oder Android, das die Seite aus dem Speicher geworfen hat. Im Panel
 steht dasselbe beim jeweiligen Album unter „Upload-Sitzungen".
 
+### Im Panel steht „Aktualisierung angefordert", aber nichts passiert
+
+Die Anforderung ist nur eine Datei. Liegt sie noch da, hat die DSM-Aufgabe sie
+nicht abgeholt:
+
+```bash
+ls -la /volume1/picpool/update-requested
+```
+
+Dann in dieser Reihenfolge prüfen:
+
+1. **Gibt es die Aufgabe überhaupt**, und hat sie in der Liste ein Häkchen?
+2. **Wiederholungsintervall** im Reiter *Zeitplan* → *Zeit*: ohne „alle 5
+   Minuten" läuft sie nur einmal am Tag. Der häufigste Fall.
+3. Aufgabe markieren → **Ergebnis anzeigen**. Steht dort nichts, war sie nie
+   dran; steht ein Rückgabewert ≠ 0, siehe `update.log`.
+4. Sofort abholen lassen: Aufgabe markieren → **Ausführen**.
+
+Liegt stattdessen eine Datei `update-running` im Datenverzeichnis, hat ein Lauf
+angefangen und nicht zu Ende gekommen — dann steht der Grund in `update.log`.
+
+Von Hand geht es jederzeit auch ohne die Aufgabe:
+
+```bash
+cd /volume1/docker/picpool && sudo /usr/local/bin/docker compose pull && sudo /usr/local/bin/docker compose up -d
+```
+
 ### Wenn das Passwort verloren geht
 
 ```bash
-sudo docker exec picpool-app node apps/server/dist/cli.js admin:password <name>
+sudo /usr/local/bin/docker exec picpool-app node apps/server/dist/cli.js admin:password raphael
 ```
 
 Erzeugt ein neues Passwort und beendet alle Sitzungen.
@@ -421,7 +477,7 @@ Erzeugt ein neues Passwort und beendet alle Sitzungen.
 ### Alles auf einen Blick
 
 ```bash
-sudo docker exec picpool-app node apps/server/dist/cli.js status
+sudo /usr/local/bin/docker exec picpool-app node apps/server/dist/cli.js status
 ```
 
 ## Aus dem Quellcode bauen
@@ -432,7 +488,7 @@ Dann braucht es doch Git und SSH:
 ```bash
 cd /volume1/docker && sudo git clone https://github.com/Raphox2001/PicPool.git picpool
 cd picpool && sudo cp .env.example .env && sudo vi .env
-sudo docker compose -f docker-compose.build.yml up -d --build
+sudo /usr/local/bin/docker compose -f docker-compose.build.yml up -d --build
 ```
 
 Diese Variante liest ihre Werte aus der `.env`, nicht aus der Compose-Datei.
