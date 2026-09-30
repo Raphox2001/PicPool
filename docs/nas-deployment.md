@@ -389,6 +389,19 @@ Zeigt die von den Geräten gemeldeten Fehler mit Dateiname, übertragenen Bytes,
 Browsermeldung und den Umständen. Dasselbe steht im Panel unter „Alben" bei den
 Kennzahlen.
 
+Wenn gar kein Fehler gemeldet wurde — der Gast sagt "bei mir ging es nicht",
+im Log steht aber nichts — hilft das Sitzungsprotokoll:
+
+```bash
+sudo docker exec picpool-app node apps/server/dist/cli.js sitzungen <album>
+```
+
+Eine Zeile je Besuch auf der Upload-Seite, mit dem Gerät und der Bilanz
+(„3 von 12 Dateien"). Steht dort **abgebrochen**, hat sich die Seite nicht mehr
+gemeldet, obwohl noch Dateien offen waren — typischerweise weggewischter Tab,
+leerer Akku oder Android, das die Seite aus dem Speicher geworfen hat. Im Panel
+steht dasselbe beim jeweiligen Album unter „Upload-Sitzungen".
+
 ### Wenn das Passwort verloren geht
 
 ```bash

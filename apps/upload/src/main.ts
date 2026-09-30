@@ -66,6 +66,15 @@ const RETRY_LADDERS = [
 ];
 const NAME_KEY = 'picpool.name';
 
+/**
+ * Abstand der Lebenszeichen an den Server.
+ *
+ * Zwanzig Sekunden sind kurz genug, dass ein Abbruch schnell auffaellt, und
+ * lang genug, dass es kaum Anfragen kostet - waehrend eines Uploads laufen
+ * ohnehin gerade Datenpakete.
+ */
+const HEARTBEAT_MS = 20_000;
+
 type State = 'wartet' | 'laeuft' | 'fertig' | 'fehler';
 
 interface Item {
@@ -115,6 +124,8 @@ const items: Item[] = [];
 let uploaderName = '';
 let running = 0;
 let wakeLock: WakeLockSentinel | null = null;
+let sessionId: string | null = null;
+let heartbeat: number | null = null;
 
 /**
  * Beobachtung der Seitensichtbarkeit.
@@ -169,6 +180,9 @@ async function init(): Promise<void> {
 
     $('step-name').classList.remove('hidden');
     $('step-pick').classList.remove('hidden');
+
+    // Ab hier weiss der Server, dass jemand die Seite offen hat.
+    void announceSession();
   } catch {
     showFatal('Keine Verbindung zum Server. Bitte später noch einmal versuchen.');
     return;
@@ -183,6 +197,85 @@ function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+// ---------------------------------------------------------------------------
+// Sitzungsprotokoll
+// ---------------------------------------------------------------------------
+
+/**
+ * Meldet dem Server, was diese Seite vorhat und dass sie noch lebt.
+ *
+ * Der Grund: Ein Fehlschlag meldet sich selbst (siehe reportError), ein
+ * gestorbener Tab nicht. Wird die Seite weggewischt, ist der Akku leer oder
+ * raeumt Android den Speicher auf, kommt nie wieder etwas - und niemand kann
+ * unterscheiden, ob der Gast abgebrochen hat oder etwas kaputt war.
+ *
+ * Deshalb meldet die Seite beim Auswaehlen ihren Plan ("zwoelf Dateien, 340
+ * MB") und danach alle zwanzig Sekunden ein Lebenszeichen. Bleibt es aus,
+ * waehrend noch Dateien offen sind, sieht der Betreiber genau das.
+ *
+ * Alles hier ist eine Zugabe und darf nie zum Problem werden: Jeder Fehlschlag
+ * wird verschluckt, und die Seite laeuft ohne Sitzung genauso weiter.
+ */
+const SESSION_KEY = `picpool.session.${token}`;
+
+/** Zaehlerstand fuer den Server: was insgesamt ausgewaehlt wurde. */
+function plan(): { selectedFiles: number; selectedBytes: number } {
+  return {
+    selectedFiles: items.length,
+    selectedBytes: items.reduce((sum, i) => sum + i.file.size, 0),
+  };
+}
+
+async function sendSession(
+  patch: Record<string, unknown> = {},
+  keepalive = false,
+): Promise<void> {
+  try {
+    const res = await fetch(`/api/u/${token}/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...(sessionId ? { id: sessionId } : {}), ...patch }),
+      keepalive,
+    });
+    if (!res.ok) return;
+
+    const data = (await res.json()) as { id?: string };
+    if (data.id && data.id !== sessionId) {
+      sessionId = data.id;
+      try {
+        // Nur fuer diesen Tab: Ein neu geladener Seitenaufruf soll dieselbe
+        // Sitzung fortsetzen, ein neuer Tab dagegen eine eigene beginnen.
+        sessionStorage.setItem(SESSION_KEY, data.id);
+      } catch {
+        /* privater Modus - dann eben ohne Fortsetzung */
+      }
+    }
+  } catch {
+    /* Das Protokoll ist Beiwerk; sein Ausfall aendert am Upload nichts. */
+  }
+}
+
+async function announceSession(): Promise<void> {
+  try {
+    sessionId = sessionStorage.getItem(SESSION_KEY);
+  } catch {
+    sessionId = null;
+  }
+  await sendSession();
+}
+
+/** Laesst die Lebenszeichen laufen, solange noch etwas zu tun ist. */
+function startHeartbeat(): void {
+  if (heartbeat !== null) return;
+  heartbeat = window.setInterval(() => void sendSession(plan()), HEARTBEAT_MS);
+}
+
+function stopHeartbeat(): void {
+  if (heartbeat === null) return;
+  clearInterval(heartbeat);
+  heartbeat = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +348,13 @@ function addFiles(files: File[]): void {
   items.push(...fresh);
 
   void acquireWakeLock();
+
+  // Den Plan sofort melden - noch bevor gesichert oder hochgeladen wird. Wer
+  // hier abbricht, hat zwoelf Dateien ausgewaehlt und null geschickt, und
+  // genau das soll der Server sehen koennen.
+  void sendSession(plan());
+  startHeartbeat();
+
   // Zuerst sichern, dann hochladen - siehe secureFiles.
   void secureFiles(fresh);
   render();
@@ -424,6 +524,9 @@ function startUpload(item: Item): void {
       filetype: item.file.type,
       token,
       uploaderName,
+      // Damit der Server die angekommene Datei der Sitzung zuordnen kann. Er
+      // zaehlt selbst; die Seite meldet nur, wohin es gehoert.
+      ...(sessionId ? { sessionId } : {}),
     },
     onProgress(sent, total) {
       item.bytesSent = sent;
@@ -613,6 +716,7 @@ function reportError(item: Item, err: Error, upload: tus.Upload | null, unreadab
     bytesSent: item.bytesSent,
     attempt: item.attempts,
     userAgent: navigator.userAgent.slice(0, 380),
+    ...(sessionId ? { sessionId } : {}),
     // Umstaende zum Zeitpunkt des Fehlers. Damit laesst sich unterscheiden,
     // ob der Tab im Hintergrund gedrosselt wurde, das Netz weg war oder
     // schlicht zu viel gleichzeitig lief.
@@ -704,6 +808,7 @@ function retryFailed(): void {
   }
   $('failed').classList.add('hidden');
   void acquireWakeLock();
+  startHeartbeat();
   pump();
   render();
 }
@@ -743,6 +848,12 @@ function finish(): void {
   if (pending || items.length === 0) return;
 
   void releaseWakeLock();
+
+  // Abmelden: Ab jetzt ist Funkstille kein Abbruch mehr, sondern das Ende.
+  // keepalive, damit die Meldung auch noch rausgeht, wenn der Gast die Seite
+  // im selben Moment schliesst.
+  stopHeartbeat();
+  void sendSession({ ...plan(), finished: true }, true);
 
   const done = items.filter((i) => i.state === 'fertig').length;
   const failed = items.filter((i) => i.state === 'fehler').length;

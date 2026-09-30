@@ -21,6 +21,31 @@ if (!baseUrl || !token || files.length === 0) {
 
 const TUS = { 'Tus-Resumable': '1.0.0' };
 
+/**
+ * Meldet eine Upload-Sitzung an, wie es die Upload-Seite tut.
+ *
+ * Damit prueft dieser Lauf auch das Sitzungsprotokoll: Der Server muss die
+ * angekommenen Dateien selbst zaehlen, ohne dass der Client Zahlen liefert.
+ */
+async function openSession(selectedFiles, selectedBytes) {
+  const res = await fetch(`${baseUrl}/api/u/${token}/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ selectedFiles, selectedBytes }),
+  });
+  if (!res.ok) throw new Error(`Sitzung anlegen ergab ${res.status}`);
+  const data = await res.json();
+  return data.id;
+}
+
+async function closeSession(id, selectedFiles, selectedBytes) {
+  await fetch(`${baseUrl}/api/u/${token}/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, selectedFiles, selectedBytes, finished: true }),
+  });
+}
+
 function encodeMetadata(obj) {
   return Object.entries(obj)
     .map(([k, v]) => `${k} ${Buffer.from(String(v), 'utf8').toString('base64')}`)
@@ -28,7 +53,7 @@ function encodeMetadata(obj) {
 }
 
 /** Legt den Upload an und liefert die Ziel-URL. */
-async function createUpload(file, size, uploaderName) {
+async function createUpload(file, size, uploaderName, sessionId) {
   const res = await fetch(`${baseUrl}/api/upload`, {
     method: 'POST',
     headers: {
@@ -38,6 +63,7 @@ async function createUpload(file, size, uploaderName) {
         filename: path.basename(file),
         token,
         uploaderName,
+        ...(sessionId ? { sessionId } : {}),
       }),
     },
   });
@@ -111,11 +137,11 @@ async function headOffset(url) {
   return Number(res.headers.get('upload-offset'));
 }
 
-async function uploadFile(file, uploaderName, { resumeTest = false } = {}) {
+async function uploadFile(file, uploaderName, { resumeTest = false, sessionId } = {}) {
   const size = fs.statSync(file).size;
   const chunkSize = Math.max(64 * 1024, Math.ceil(size / 4));
 
-  const url = await createUpload(file, size, uploaderName);
+  const url = await createUpload(file, size, uploaderName, sessionId);
 
   // Die Unterbrechung laesst sich nur pruefen, wenn die Datei ueberhaupt aus
   // mehreren Abschnitten besteht. Bei einer kleinen Datei waere sie nach dem
@@ -191,13 +217,18 @@ async function sendChunksFrom(url, file, size, startOffset, chunkSize) {
 
 const results = [];
 
+// Erst die Sitzung, dann die Dateien - genau die Reihenfolge der Upload-Seite.
+const plannedBytes = files.reduce((sum, f) => sum + fs.statSync(f).size, 0);
+const sessionId = await openSession(files.length, plannedBytes);
+console.log(`  Sitzung ${sessionId} angemeldet: ${files.length} Dateien geplant\n`);
+
 for (const [i, file] of files.entries()) {
   const name = i === 0 ? 'Oma Erika' : 'Max Mustermann';
   const resumeTest = i === 0;
 
   process.stdout.write(`  ${path.basename(file).padEnd(28)} als "${name}"${resumeTest ? ' (mit Unterbrechung)' : ''} ... `);
   try {
-    const r = await uploadFile(file, name, { resumeTest });
+    const r = await uploadFile(file, name, { resumeTest, sessionId });
     console.log(
       `ok  ${(r.size / 1024).toFixed(0)} KB in ${r.requests} PATCH${r.requests === 1 ? '' : 'es'}` +
         (r.resumedAt ? `, fortgesetzt ab ${r.resumedAt}` : '') +
@@ -209,6 +240,10 @@ for (const [i, file] of files.entries()) {
     results.push({ file, error: err.message });
   }
 }
+
+await closeSession(sessionId, files.length, plannedBytes);
+console.log('\nSitzung abgemeldet. Bilanz ansehen mit:');
+console.log('  node dist/cli.js sitzungen <album>');
 
 console.log('\nErgebnis:');
 console.log(JSON.stringify(results, null, 2));

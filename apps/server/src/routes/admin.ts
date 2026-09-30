@@ -22,6 +22,7 @@ import {
   revokeShareLink,
 } from '../services/shareLinks.js';
 import { listUploadersWithCounts } from '../services/uploaders.js';
+import { listSessions } from '../services/uploadSessions.js';
 import { listGalleryAssets } from '../services/gallery.js';
 import { queueStats, enqueue } from '../jobs/queue.js';
 import { needsH264Fallback } from '../lib/media.js';
@@ -186,6 +187,29 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       assets: listGalleryAssets(album.id),
     };
   });
+
+  /**
+   * Die Upload-Sitzungen eines Albums.
+   *
+   * Getrennt von der Albumansicht, weil die Liste mit jedem Gast waechst und
+   * nur selten gebraucht wird: dann, wenn jemand sagt "bei mir hat es nicht
+   * geklappt". Dann steht hier, ob seine Seite ueberhaupt bis zum Ende gelaufen
+   * ist - auch wenn sie nichts mehr melden konnte.
+   */
+  app.get<{ Params: { id: string }; Querystring: { anzahl?: string } }>(
+    '/api/admin/albums/:id/sessions',
+    guard,
+    async (req, reply) => {
+      const album = getAlbumById(req.params.id);
+      if (!album) return reply.code(404).send({ ok: false });
+
+      const limit = Number(req.query.anzahl ?? 50);
+      return {
+        ok: true,
+        sessions: listSessions(album.id, Number.isFinite(limit) ? limit : 50),
+      };
+    },
+  );
 
   app.patch<{
     Params: { id: string };

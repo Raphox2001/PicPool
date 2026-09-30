@@ -6,6 +6,7 @@ import { getDb } from './db/index.js';
 import { createAlbum, listAlbums, getAlbumById, getAlbumUsage } from './services/albums.js';
 import { createShareLink, listShareLinks, revealToken, buildUrl, revokeShareLink } from './services/shareLinks.js';
 import { listUploadersWithCounts } from './services/uploaders.js';
+import { listSessions } from './services/uploadSessions.js';
 import { queueStats } from './jobs/queue.js';
 
 /**
@@ -35,6 +36,9 @@ PicPool Verwaltung
   admin:password <Name>                Passwort neu erzeugen (Notfall)
   admin:list                           Adminkonten anzeigen
   fehler [--anzahl N]                  Gemeldete Upload-Fehler der Geraete
+  sitzungen <Album-ID|Slug> [--anzahl N]
+                                       Upload-Sitzungen: wer wie viel vorhatte
+                                       und was davon angekommen ist
 
   backup [Pfad] [--behalten N]         Konsistente Sicherung der Datenbank
   cleanup                              Abgebrochene Uploads und Reste entfernen
@@ -71,6 +75,11 @@ async function printQr(label: string, url: string): Promise<void> {
       .map((line) => `  ${line}`)
       .join('\n'),
   );
+}
+
+/** Zeitstempel kurz und lesbar: "2026-09-30 18:04:11". */
+function when(iso: string): string {
+  return iso.slice(0, 19).replace('T', ' ');
 }
 
 function formatBytes(n: number): string {
@@ -257,6 +266,45 @@ async function main(): Promise<void> {
       break;
     }
 
+    case 'sitzungen': {
+      const album = findAlbum(args[0] ?? '');
+      if (!album) throw new Error('Album nicht gefunden. Erst "album:list" aufrufen.');
+
+      const limit = Number(flag(args, 'anzahl') ?? 20);
+      const sessions = listSessions(album.id, Number.isFinite(limit) ? limit : 20);
+
+      if (sessions.length === 0) {
+        console.log(`\nKeine Upload-Sitzungen fuer "${album.name}".\n`);
+        break;
+      }
+
+      console.log(`\n${sessions.length} Upload-Sitzungen in "${album.name}" (neueste zuerst):\n`);
+
+      for (const s of sessions) {
+        const plan =
+          s.selectedFiles > 0
+            ? `${s.filesUploaded} von ${s.selectedFiles} Dateien`
+            : `${s.filesUploaded} Dateien`;
+        // Ein Rufzeichen am Rand, damit der interessante Fall beim Durchscrollen
+        // ins Auge faellt.
+        const mark = s.outcome === 'abgebrochen' ? '!' : ' ';
+
+        console.log(`${mark} ${when(s.startedAt)}  ${s.outcome.padEnd(11)} ${plan}`);
+        console.log(
+          `    ${s.device}  ${s.uploaderName ?? 'ohne Namen'}  -  ${formatBytes(s.bytesUploaded)}` +
+            (s.selectedBytes > 0 ? ` von ${formatBytes(s.selectedBytes)}` : ''),
+        );
+        if (s.failedFiles > 0) {
+          console.log(`    fehlgeschlagen: ${s.failedFiles}  ${s.lastError ?? ''}`);
+        }
+        if (s.outcome === 'abgebrochen') {
+          console.log(`    zuletzt gesehen ${when(s.lastSeenAt)} - danach kam nichts mehr`);
+        }
+        console.log();
+      }
+      break;
+    }
+
     case 'admin:create':
     case 'admin:password': {
       const name = args[0];
@@ -353,7 +401,8 @@ async function main(): Promise<void> {
       const { cleanupIncoming } = await import('./services/maintenance.js');
       const r = await cleanupIncoming();
       console.log(`\n  Abgebrochene Uploads entfernt : ${r.incomingRemoved} (${formatBytes(r.incomingBytes)})`);
-      console.log(`  Verwaiste Derivate entfernt   : ${r.orphanDerivatives}\n`);
+      console.log(`  Verwaiste Derivate entfernt   : ${r.orphanDerivatives}`);
+      console.log(`  Alte Upload-Sitzungen entfernt : ${r.oldSessions}\n`);
       break;
     }
 

@@ -115,6 +115,30 @@ export interface UploaderInfo {
   count: number;
 }
 
+/**
+ * Ein Besuch auf der Upload-Seite.
+ *
+ * `outcome` ist die eigentliche Auskunft: `abgebrochen` heisst, die Seite hat
+ * sich nicht mehr gemeldet, obwohl noch Dateien offen waren - der Fall, den
+ * ein Gast selbst nie berichten kann.
+ */
+export interface UploadSessionInfo {
+  id: string;
+  startedAt: string;
+  lastSeenAt: string;
+  finishedAt: string | null;
+  outcome: 'fertig' | 'laeuft' | 'abgebrochen' | 'verstummt' | 'leer';
+  uploaderName: string | null;
+  device: string;
+  userAgent: string | null;
+  selectedFiles: number;
+  selectedBytes: number;
+  filesUploaded: number;
+  bytesUploaded: number;
+  failedFiles: number;
+  lastError: string | null;
+}
+
 export interface Overview {
   albums: number;
   files: number;

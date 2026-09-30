@@ -301,6 +301,8 @@ Ersteinrichtung. Dieser Weg schließt sich, sobald ein Konto existiert.
   PNG zum Ausdrucken (bis 2000 px, für Ausdrucke an der Wand)
 - **Einstellungen** pro Album: Downloads, Originale im Heimnetz, GPS entfernen
 - **Moderation**: einzelne Dateien löschen, fehlgeschlagene neu verarbeiten
+- **Upload-Sitzungen** je Album: wer wie viel vorhatte, was davon ankam und
+  welche Seite sich nicht mehr gemeldet hat
 - **Konto**: Passwort ändern, zweiten Faktor einrichten
 
 ### Absicherung
@@ -397,6 +399,65 @@ Mit einem echten HEVC-Video (1920×1080, `hvc1`-Tag wie vom iPhone):
   Kastens
 - Bei gesperrtem Download: Original **403**, H.264-Fassung **200** — Ansehen
   bleibt erlaubt, Herunterladen nicht
+
+## Wenn ein Upload schiefgeht
+
+Ein Fehlschlag passiert auf dem Handy eines Gastes, an dessen
+Entwicklerkonsole niemand herankommt. Deshalb gibt es drei Wege, hinterher zu
+verstehen, was los war.
+
+**1. Das Gerät meldet den Fehler.** Scheitert eine Datei endgültig, schickt die
+Upload-Seite einen Bericht: Dateiname, Größe, übertragene Bytes, Versuchszahl,
+die echte Browsermeldung und die Umstände — ob die Seite im Hintergrund war,
+welche Netzwerkart aktiv war, ob der Bildschirm wachgehalten wurde, bis zu
+welcher Paketgröße heruntergegangen wurde und ob die Datei überhaupt noch
+lesbar war. Zu sehen mit `cli.js fehler` und im Panel.
+
+**2. Das Sitzungsprotokoll zeigt, was nie gemeldet wurde.** Der schlimmste Fall
+meldet sich nämlich nicht: Wird der Tab weggewischt, ist der Akku leer oder
+wirft Android die Seite aus dem Speicher, kommt gar nichts mehr an — und von
+außen ist das nicht von „der Gast hat es sich anders überlegt" zu unterscheiden.
+
+Deshalb kennt der Server den *Plan*: Die Upload-Seite meldet beim Auswählen, wie
+viele Dateien kommen sollen, und danach alle zwanzig Sekunden ein Lebenszeichen.
+Angekommene Dateien zählt der Server selbst, nicht die Seite. Bleibt das
+Lebenszeichen aus, während noch Dateien offen sind, steht es in der Sitzung:
+
+| Ausgang | Bedeutung |
+|---|---|
+| `fertig` | Die Seite hat sich abgemeldet, alles abgearbeitet |
+| `läuft` | Lebenszeichen ist frisch |
+| `abgebrochen` | Verstummt, obwohl noch Dateien offen waren — der interessante Fall |
+| `verstummt` | Verstummt, nachdem alles durch war; die Seite wurde wohl einfach geschlossen |
+| `leer` | Link geöffnet, nie etwas ausgewählt |
+
+Zu sehen mit `cli.js sitzungen <album>` und im Panel beim jeweiligen Album. Die
+Zeile enthält bewusst wenig: Zeitpunkte, Zahlen, eine gekürzte Geraetekennung
+und die IP nur pseudonymisiert. Nach 90 Tagen räumt das tägliche Aufräumen sie
+weg (`cli.js cleanup`, im Betrieb einmal am Tag durch den Worker).
+
+**3. Der Netzwerktest trennt Anwendung und Funkstrecke.** `/nettest` schickt
+Datenmengen verschiedener Größe ohne PicPool dazwischen. Nur aktiv, wenn
+`PICPOOL_NETTEST` gesetzt ist — ein offener Endpunkt, der beliebige Datenmengen
+annimmt, hat im Regelbetrieb nichts zu suchen. Einzelheiten in
+[docs/geraetetest.md](docs/geraetetest.md).
+
+### Nachgewiesen
+
+15 Tests deckten das Sitzungsprotokoll ab, davon fünf allein die Frage, wann
+eine Sitzung als abgebrochen gilt. Zusätzlich gegen den laufenden Server
+geprüft (30.09.2026):
+
+| Prüfung | Ergebnis |
+|---|---|
+| Zwei Dateien angemeldet, zwei hochgeladen, abgemeldet | `fertig`, 2 von 2, 3,8 MB — vom Server gezählt, nicht gemeldet |
+| Fehlerbericht mit Sitzungskennung | als fehlgeschlagene Datei in der Sitzung vermerkt |
+| Upload-Seite im Browser geöffnet | Sitzung angelegt, Gerät als „Windows · Chrome" erkannt |
+| Sitzungskennung eines fremden Albums untergeschoben | keine Zeile geändert |
+| Adminroute ohne Anmeldung | 401 |
+
+Die Kennung aus den tus-Metadaten ist unbestätigt, deshalb ist jeder
+Schreibzugriff auf das Album des Tokens eingeschränkt, mit dem er hereinkommt.
 
 ## Verwaltung von der Kommandozeile
 

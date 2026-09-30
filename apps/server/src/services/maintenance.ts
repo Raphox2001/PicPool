@@ -4,6 +4,7 @@ import path from 'node:path';
 import { getDb, nowIso } from '../db/index.js';
 import { getConfig } from '../config.js';
 import { assertWithinRoot } from '../lib/slug.js';
+import { deleteOldSessions, SESSION_RETENTION_DAYS } from './uploadSessions.js';
 
 /**
  * Betriebsaufgaben: Sicherung und Aufraeumen.
@@ -78,6 +79,7 @@ export interface CleanupResult {
   incomingRemoved: number;
   incomingBytes: number;
   orphanDerivatives: number;
+  oldSessions: number;
 }
 
 /**
@@ -95,7 +97,12 @@ export interface CleanupResult {
  */
 export async function cleanupIncoming(): Promise<CleanupResult> {
   const cfg = getConfig();
-  const result: CleanupResult = { incomingRemoved: 0, incomingBytes: 0, orphanDerivatives: 0 };
+  const result: CleanupResult = {
+    incomingRemoved: 0,
+    incomingBytes: 0,
+    orphanDerivatives: 0,
+    oldSessions: 0,
+  };
 
   // --- incoming/ ---
   if (fs.existsSync(cfg.paths.incoming)) {
@@ -138,6 +145,13 @@ export async function cleanupIncoming(): Promise<CleanupResult> {
     getDb().prepare('DELETE FROM derivatives WHERE id = ?').run(o.id);
     result.orphanDerivatives++;
   }
+
+  // --- Upload-Sitzungen nach Ablauf der Aufbewahrungsfrist ---
+  //
+  // Die Sitzungen sind Diagnosedaten von Gaesten: Geraetekennung,
+  // pseudonymisierte IP, Dateizahlen, Zeitpunkte. Nuetzlich sind sie, solange
+  // man einem Fehlschlag noch nachgehen kann - danach nicht mehr.
+  result.oldSessions = deleteOldSessions(SESSION_RETENTION_DAYS);
 
   return result;
 }

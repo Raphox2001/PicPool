@@ -8,6 +8,7 @@ import {
   type AdminAsset,
   type UploaderInfo,
   type ShareLinkInfo,
+  type UploadSessionInfo,
 } from './api';
 
 interface Detail {
@@ -186,6 +187,9 @@ export function AlbumDetail({ id, onBack }: { id: string; onBack: () => void }) 
         </section>
       )}
 
+      {/* --- Upload-Sitzungen --- */}
+      <UploadSessions albumId={id} />
+
       {/* --- Inhalt --- */}
       <section className="panel">
         <h2>Inhalt</h2>
@@ -273,6 +277,125 @@ export function AlbumDetail({ id, onBack }: { id: string; onBack: () => void }) 
         )}
       </section>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** Beschriftung und Farbe je Ausgang einer Sitzung. */
+const OUTCOME: Record<UploadSessionInfo['outcome'], { label: string; badge: string }> = {
+  fertig: { label: 'fertig', badge: 'badge ok' },
+  laeuft: { label: 'läuft gerade', badge: 'badge' },
+  abgebrochen: { label: 'abgebrochen', badge: 'badge err' },
+  verstummt: { label: 'Seite geschlossen', badge: 'badge' },
+  leer: { label: 'nichts ausgewählt', badge: 'badge' },
+};
+
+/**
+ * Die Besuche auf der Upload-Seite.
+ *
+ * Wozu: Ein Gast, bei dem es nicht geklappt hat, kann meistens nicht sagen,
+ * woran es lag — und wenn seine Seite abgestürzt ist, konnte sie es auch nicht
+ * melden. Hier steht trotzdem, wie viel er vorhatte, was davon ankam und wann
+ * sich sein Gerät zuletzt gemeldet hat.
+ *
+ * Wird getrennt geladen: Die Liste wächst mit jedem Gast und wird selten
+ * gebraucht, sie soll die Albumansicht nicht aufhalten.
+ */
+function UploadSessions({ albumId }: { albumId: string }) {
+  const [sessions, setSessions] = useState<UploadSessionInfo[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const r = await api.get<{ sessions: UploadSessionInfo[] }>(`/albums/${albumId}/sessions`);
+      setSessions(r.sessions);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Laden fehlgeschlagen.');
+    }
+  }, [albumId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const broken = (sessions ?? []).filter((s) => s.outcome === 'abgebrochen').length;
+
+  return (
+    <section className="panel">
+      <div className="head-row">
+        <h2>Upload-Sitzungen</h2>
+        <button className="link-btn" onClick={() => void load()}>
+          Aktualisieren
+        </button>
+      </div>
+      <p className="muted small">
+        Jede Zeile ist ein Besuch auf der Upload-Seite. „Abgebrochen" heißt: Das Gerät hat sich
+        nicht mehr gemeldet, obwohl noch Dateien offen waren — der Fall, den ein Gast selbst nicht
+        berichten kann.
+      </p>
+
+      {error && <p className="error">{error}</p>}
+
+      {sessions === null ? (
+        <p className="muted">Wird geladen …</p>
+      ) : sessions.length === 0 ? (
+        <p className="muted">Noch niemand hat den Upload-Link geöffnet.</p>
+      ) : (
+        <>
+          {broken > 0 && (
+            <p className="warn-text">
+              {broken === 1
+                ? 'Eine Sitzung ist abgebrochen.'
+                : `${broken} Sitzungen sind abgebrochen.`}{' '}
+              Einzelheiten zu den gemeldeten Fehlern stehen in der Übersicht und im Serverlog.
+            </p>
+          )}
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Begonnen</th>
+                <th>Gerät</th>
+                <th>Von</th>
+                <th>Dateien</th>
+                <th>Menge</th>
+                <th>Zustand</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((s) => (
+                <tr key={s.id}>
+                  <td className="small muted">{formatDateTime(s.startedAt)}</td>
+                  <td className="small" title={s.userAgent ?? ''}>
+                    {s.device}
+                  </td>
+                  <td className="small">{s.uploaderName ?? '–'}</td>
+                  <td className="small">
+                    {s.selectedFiles > 0
+                      ? `${s.filesUploaded} von ${s.selectedFiles}`
+                      : String(s.filesUploaded)}
+                    {s.failedFiles > 0 && (
+                      <span className="badge err">{s.failedFiles} fehlgeschlagen</span>
+                    )}
+                  </td>
+                  <td className="small muted">{formatBytes(s.bytesUploaded)}</td>
+                  <td className="small">
+                    <span className={OUTCOME[s.outcome].badge}>{OUTCOME[s.outcome].label}</span>
+                    {s.outcome === 'abgebrochen' && (
+                      <div className="muted small">
+                        zuletzt gesehen {formatDateTime(s.lastSeenAt)}
+                      </div>
+                    )}
+                    {s.lastError && <div className="muted small mono">{s.lastError}</div>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </section>
   );
 }
 

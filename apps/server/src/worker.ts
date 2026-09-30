@@ -31,7 +31,7 @@ const handlers: Partial<Record<JobType, Handler>> = {
   transcode_video: async (payload) => transcodeVideo(payload),
   cleanup_incoming: async () => {
     const r = await cleanupIncoming();
-    if (r.incomingRemoved > 0 || r.orphanDerivatives > 0) {
+    if (r.incomingRemoved > 0 || r.orphanDerivatives > 0 || r.oldSessions > 0) {
       log('info', 'Aufgeraeumt', r);
     }
   },

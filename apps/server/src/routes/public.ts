@@ -4,6 +4,7 @@ import { resolveToken } from '../services/shareLinks.js';
 import { getAlbumUsage } from '../services/albums.js';
 import { getDb } from '../db/index.js';
 import { pseudonymizeIp } from '../lib/crypto.js';
+import { startSession, touchSession, recordFailedFile } from '../services/uploadSessions.js';
 
 /**
  * Oeffentliche Endpunkte fuer Gaeste. Keine Anmeldung, nur das Token.
@@ -65,6 +66,70 @@ export function registerPublicRoutes(app: FastifyInstance): void {
   );
 
   /**
+   * Meldet eine Upload-Sitzung an und haelt sie am Leben.
+   *
+   * Ein Aufruf ohne `id` legt eine Sitzung an und gibt ihre Kennung zurueck;
+   * mit `id` ist es ein Lebenszeichen. Dieselbe Route nimmt auch den Plan
+   * ("zwoelf Dateien, 340 MB ausgewaehlt") und die Abmeldung entgegen - mehr
+   * Endpunkte braucht es dafuer nicht.
+   *
+   * Der Nutzen steckt im Plan: Ohne ihn sieht der Server nur, was ankommt.
+   * Mit ihm ist ein Abbruch erkennbar, auch wenn das Geraet nichts mehr
+   * melden kann - siehe services/uploadSessions.ts.
+   */
+  app.post<{
+    Params: { token: string };
+    Body: { id?: string; selectedFiles?: number; selectedBytes?: number; finished?: boolean };
+  }>(
+    '/api/u/:token/session',
+    {
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string', maxLength: 64 },
+            // Obergrenzen, damit eine erfundene Meldung die Anzeige nicht
+            // unbrauchbar macht. Die Zahlen sind ohnehin nur der Vergleichswert
+            // zu dem, was der Server selbst gezaehlt hat.
+            selectedFiles: { type: 'integer', minimum: 0, maximum: 10000 },
+            selectedBytes: { type: 'integer', minimum: 0, maximum: 1099511627776 },
+            finished: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const resolved = resolveToken(req.params.token, 'upload');
+      if (!resolved.ok) return reply.code(404).send({ ok: false });
+
+      const b = req.body ?? {};
+      const patch = {
+        selectedFiles: b.selectedFiles,
+        selectedBytes: b.selectedBytes,
+        finished: b.finished === true,
+      };
+
+      // Eine unbekannte Kennung wird nicht angemeckert, sondern ersetzt: Nach
+      // einem Neustart des Servers oder abgelaufener Aufbewahrung haelt das
+      // Handy noch eine alte ID in der Hand, und der Gast soll davon nichts
+      // mitbekommen.
+      const existing = b.id ? touchSession(b.id, resolved.link.id, patch) : null;
+      if (existing) return { ok: true, id: existing.id };
+
+      const session = startSession({
+        linkId: resolved.link.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'] ?? null,
+      });
+      const started = touchSession(session.id, resolved.link.id, patch);
+
+      return { ok: true, id: (started ?? session).id };
+    },
+  );
+
+  /**
    * Nimmt Fehlerberichte der Upload-Seite entgegen.
    *
    * Ohne das ist ein fehlgeschlagener Upload nicht nachvollziehbar: Der Fehler
@@ -89,6 +154,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
       attempt?: number;
       userAgent?: string;
       context?: string;
+      sessionId?: string;
     };
   }>(
     '/api/u/:token/report',
@@ -111,6 +177,7 @@ export function registerPublicRoutes(app: FastifyInstance): void {
             attempt: { type: 'number' },
             userAgent: { type: 'string', maxLength: 400 },
             context: { type: 'string', maxLength: 600 },
+            sessionId: { type: 'string', maxLength: 64 },
           },
         },
       },
@@ -141,6 +208,16 @@ export function registerPublicRoutes(app: FastifyInstance): void {
         },
         'Upload auf dem Geraet fehlgeschlagen',
       );
+
+      // Auch in der Sitzung vermerken, damit eine Zeile in der Uebersicht die
+      // ganze Geschichte erzaehlt und nicht erst der Abgleich mit dem Log.
+      if (b.sessionId) {
+        recordFailedFile(
+          b.sessionId,
+          resolved.link.id,
+          `${b.filename ?? 'unbekannt'}: ${b.message ?? 'ohne Meldung'}`,
+        );
+      }
 
       getDb()
         .prepare(

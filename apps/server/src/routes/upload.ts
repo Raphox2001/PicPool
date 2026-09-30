@@ -9,6 +9,7 @@ import { resolveToken, recordUse } from '../services/shareLinks.js';
 import { findOrCreateUploader, getUploader } from '../services/uploaders.js';
 import { checkQuota } from '../services/albums.js';
 import { ingestUpload, RejectedUpload } from '../services/assets.js';
+import { recordUploadedFile } from '../services/uploadSessions.js';
 import { cleanDisplayName } from '../lib/slug.js';
 
 /**
@@ -33,6 +34,8 @@ interface ValidatedMeta {
   uploaderId: string;
   token: string;
   filename: string;
+  /** Sitzung der Upload-Seite, falls sie eine gemeldet hat. */
+  sessionId: string | null;
 }
 
 function readMeta(upload: Upload): ValidatedMeta | null {
@@ -43,6 +46,7 @@ function readMeta(upload: Upload): ValidatedMeta | null {
     uploaderId: m.uploaderId,
     token: m.token,
     filename: m.filename ?? 'unbenannt',
+    sessionId: m.sessionId ?? null,
   };
 }
 
@@ -74,6 +78,11 @@ export async function registerUploadRoutes(app: FastifyInstance): Promise<void> 
         throw { status_code: 403, body: 'Dieser Upload-Link ist nicht (mehr) gueltig.' };
       }
 
+      // Die Sitzungskennung wird nur mitgefuehrt, nicht geglaubt: Was damit
+      // gezaehlt wird, schreibt der Server, und der Schreibzugriff ist auf das
+      // Album dieses Tokens eingeschraenkt.
+      const sessionId = typeof meta.sessionId === 'string' ? meta.sessionId.slice(0, 64) : '';
+
       const displayName = cleanDisplayName(rawName);
       if (displayName.length < 2) {
         throw { status_code: 400, body: 'Bitte zuerst einen Namen eintragen.' };
@@ -97,6 +106,7 @@ export async function registerUploadRoutes(app: FastifyInstance): Promise<void> 
           albumId: resolved.album.id,
           uploaderId: uploader.id,
           token,
+          sessionId,
         },
       };
     },
@@ -135,6 +145,15 @@ export async function registerUploadRoutes(app: FastifyInstance): Promise<void> 
         });
 
         await removeTusSidecar(upload);
+
+        // Bilanz der Sitzung fortschreiben. Das ist die einzige Stelle, an der
+        // angekommene Dateien gezaehlt werden - der Client zaehlt nicht mit.
+        if (meta.sessionId) {
+          recordUploadedFile(meta.sessionId, resolved.album.id, {
+            bytes: upload.size ?? 0,
+            uploaderId: uploader.id,
+          });
+        }
 
         return {
           res,

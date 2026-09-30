@@ -114,7 +114,7 @@ Wenn gefragt wird „und was mach ich jetzt?", ist die Seite noch nicht fertig.
 
 ## Wenn Uploads scheitern
 
-Zwei Werkzeuge stehen bereit:
+Drei Werkzeuge stehen bereit:
 
 ### 1. Fehlerberichte der Geräte
 
@@ -127,7 +127,24 @@ Browser-Fehlermeldung und die Umstände: ob die Seite im Hintergrund war,
 welche Netzwerkart aktiv war, wie viele Uploads gleichzeitig liefen. Dasselbe
 steht auch direkt auf dem Handy unter „Technische Einzelheiten".
 
-### 2. Netzwerktest
+### 2. Sitzungsprotokoll
+
+```bash
+node apps/server/dist/cli.js sitzungen geraetetest
+```
+
+Eine Zeile je Besuch auf der Upload-Seite: Gerät, Name, wie viele Dateien
+ausgewählt waren und wie viele davon ankamen.
+
+Das ist das Werkzeug für den Fall, in dem **gar nichts gemeldet wird** — wenn
+der Tab weggewischt wird, der Akku leer ist oder Android die Seite aus dem
+Speicher wirft, kann das Gerät keinen Fehlerbericht mehr schicken. Steht in der
+Zeile `abgebrochen`, ist genau das passiert: Die Seite hat sich nicht mehr
+gemeldet, obwohl noch Dateien offen waren.
+
+Dieselbe Liste steht im Adminpanel beim Album unter „Upload-Sitzungen".
+
+### 3. Netzwerktest
 
 Am Handy `http://<adresse>:8080/nettest` öffnen. Die Seite schickt Datenmengen
 verschiedener Größe an den Server — ohne PicPool dazwischen. Damit lässt sich
