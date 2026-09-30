@@ -6,6 +6,11 @@
 # verlangte Arbeitsspeicher, den die NAS neben den anderen Containern kaum hat.
 #
 # Ergebnis: ghcr.io/raphox2001/picpool:latest  (und :1.2.3 je Release)
+#
+# Bei einem Tag entsteht ausserdem ein GitHub-Release. Das ist keine Kosmetik:
+# Der Aktualisierungsknopf im Adminpanel fragt releases/latest ab, und ein Tag
+# allein taucht dort nicht auf. Ohne Release bleibt der Knopf blind - genau das
+# war bis 0.4.1 der Fall, das Panel sah an drei Versionen vorbei.
 # ---------------------------------------------------------------------------
 
 name: Image veroeffentlichen
@@ -57,3 +62,39 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------------------------
+  # Release zum Tag anlegen.
+  #
+  # Erst wenn das Image steht: Ein Release, zu dem es kein Image gibt, wuerde
+  # auf der NAS einen Pull ins Leere ausloesen - das Panel bietet die
+  # Aktualisierung an, und docker compose pull findet sie nicht.
+  #
+  # Ein vorhandenes Release wird nicht angetastet. Damit laesst sich dieser
+  # Ablauf ueber "Run workflow" auch auf einen aelteren Tag anwenden, um ein
+  # fehlendes Release nachzutragen.
+  # -------------------------------------------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: image
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Volle Historie, damit die Notizen aus den Commits entstehen koennen.
+          fetch-depth: 0
+
+      - name: Release anlegen, falls noch keines existiert
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag existiert bereits - nichts zu tun."
+            exit 0
+          fi
+          gh release create "$tag" --title "PicPool $tag" --generate-notes
