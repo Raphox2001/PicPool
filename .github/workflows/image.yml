@@ -70,9 +70,13 @@ jobs:
   # auf der NAS einen Pull ins Leere ausloesen - das Panel bietet die
   # Aktualisierung an, und docker compose pull findet sie nicht.
   #
-  # Ein vorhandenes Release wird nicht angetastet. Damit laesst sich dieser
-  # Ablauf ueber "Run workflow" auch auf einen aelteren Tag anwenden, um ein
-  # fehlendes Release nachzutragen.
+  # Ein vorhandenes Release wird nicht angetastet, ein erneuter Lauf desselben
+  # Tags ist also gefahrlos.
+  #
+  # Fuer Tags, die VOR dieser Aenderung entstanden sind, hilft das nicht:
+  # "Run workflow" benutzt die Workflow-Datei des gewaehlten Refs, und dort
+  # fehlt dieser Job noch. Deren Release muss von Hand angelegt werden - oder
+  # man laesst es, denn fuer die Versionspruefung zaehlt nur das neueste.
   # -------------------------------------------------------------------------
   release:
     if: startsWith(github.ref, 'refs/tags/v')
